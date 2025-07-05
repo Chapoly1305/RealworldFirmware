@@ -127,14 +127,24 @@ def complexity_xtensa():
     for line in lines[1:]:
         s_ = line.split(',')
         funcs_ = int(s_[2])
-        size_ = int(s_[3])
+        try:
+            size_ = int(s_[3].strip())
+        except ValueError:
+            # Skip lines with invalid size data
+            continue
         if funcs_ == 0:
             continue
         xtensa_funcs.append(funcs_)
         # KB
         xtensa_size.append(size_/1024)
-    table6_xtensa = md_table(['Func.#','Size(KB)'], ['Mean','Median','SD'], [[sum(xtensa_funcs)/len(xtensa_funcs),median(xtensa_funcs),std_dev(xtensa_funcs)], \
-                                                                              [sum(xtensa_size)/len(xtensa_size),median(xtensa_size),std_dev(xtensa_size)]], True)
+    
+    if not xtensa_funcs:
+        # Handle case where no valid data is available
+        table6_xtensa = md_table(['Func.#','Size(KB)'], ['Mean','Median','SD'], [["N/A","N/A","N/A"], \
+                                                                                  ["N/A","N/A","N/A"]], False)
+    else:
+        table6_xtensa = md_table(['Func.#','Size(KB)'], ['Mean','Median','SD'], [[sum(xtensa_funcs)/len(xtensa_funcs),median(xtensa_funcs),std_dev(xtensa_funcs)], \
+                                                                                  [sum(xtensa_size)/len(xtensa_size),median(xtensa_size),std_dev(xtensa_size)]], True)
 
     # Distribution of function
     t1 = 100
@@ -283,7 +293,12 @@ def filter_match(lib_match, lib_match_full):
 def library_arm():
     # TODO: add table 7
     # SimMatch 
-    (SimMatch_arm_match, SimMatch_arm_match_full) = match_program(best_match('SimMaxMatch_binfunc_arm_bins', 'json'), arm_funcdb)
+    sim_match_file = best_match('SimMaxMatch_binfunc_arm_bins', 'json')
+    if sim_match_file is None:
+        SimMatch_arm_match = {}
+        SimMatch_arm_match_full = {}
+    else:
+        (SimMatch_arm_match, SimMatch_arm_match_full) = match_program(sim_match_file, arm_funcdb)
     with open('./res/SimMatch_arm_lib_result.json', 'w') as file:
         json.dump(SimMatch_arm_match, file, indent=4)
     with open('./res/SimMatch_arm_lib_full_result.json', 'w') as file:
@@ -292,7 +307,12 @@ def library_arm():
     with open('./res/SimMatch_arm_lib_filter_result.json', 'w') as file:
         json.dump(SimMatch_arm_filter_full, file, indent=4)
     # FunctionID
-    (FunctionID_arm_match, FunctionID_arm_match_full) = match_program(best_match('functionID_arm_bins', 'json'), arm_funcdb)
+    func_id_file = best_match('functionID_arm_bins', 'json')
+    if func_id_file is None:
+        FunctionID_arm_match = {}
+        FunctionID_arm_match_full = {}
+    else:
+        (FunctionID_arm_match, FunctionID_arm_match_full) = match_program(func_id_file, arm_funcdb)
     with open('./res/FunctionID_arm_lib_result.json', 'w') as file:
         json.dump(FunctionID_arm_match, file, indent=4)
     with open('./res/FunctionID_arm_lib_full_result.json', 'w') as file:
@@ -324,7 +344,12 @@ def library_arm():
 def library_xtensa():
     # TODO: add table 7
     # SimMatch 
-    (SimMatch_xtensa_match, SimMatch_xtensa_match_full) = match_program(best_match('SimMaxMatch_binfunc_xtensa_bins', 'json'), esp_funcdb)
+    sim_match_file = best_match('SimMaxMatch_binfunc_xtensa_bins', 'json')
+    if sim_match_file is None:
+        SimMatch_xtensa_match = {}
+        SimMatch_xtensa_match_full = {}
+    else:
+        (SimMatch_xtensa_match, SimMatch_xtensa_match_full) = match_program(sim_match_file, esp_funcdb)
     with open('./res/SimMatch_xtensa_lib_result.json', 'w') as file:
         json.dump(SimMatch_xtensa_match, file, indent=4)
     with open('./res/SimMatch_xtensa_lib_full_result.json', 'w') as file:
@@ -333,7 +358,12 @@ def library_xtensa():
     with open('./res/SimMatch_xtensa_lib_filter_result.json', 'w') as file:
         json.dump(SimMatch_xtensa_filter_full, file, indent=4)
     # FunctionID
-    (FunctionID_xtensa_match, FunctionID_xtensa_match_full) = match_program(best_match('functionID_xtensa_bins', 'json'), esp_funcdb)
+    func_id_file = best_match('functionID_xtensa_bins', 'json')
+    if func_id_file is None:
+        FunctionID_xtensa_match = {}
+        FunctionID_xtensa_match_full = {}
+    else:
+        (FunctionID_xtensa_match, FunctionID_xtensa_match_full) = match_program(func_id_file, esp_funcdb)
     with open('./res/FunctionID_xtensa_lib_result.json', 'w') as file:
         json.dump(FunctionID_xtensa_match, file, indent=4)
     with open('./res/FunctionID_xtensa_lib_full_result.json', 'w') as file:
@@ -364,27 +394,46 @@ def library_xtensa():
 
 def total_match_result():
     # ARM
-    with open(best_match('SimMatch_binfunc_arm_bins','csv'), 'r') as file:
-        lines = file.readlines()
-    SimMatch_arm_num = 0
-    for l in lines[1:]:
-        SimMatch_arm_num += int(l.split(',')[1])
-    with open(best_match('functionID_arm_bins','csv'), 'r') as file:
-        lines = file.readlines()
-    FunctionID_arm_num = 0
-    for l in lines[1:]:
-        FunctionID_arm_num += int(l.split(',')[1])
+    arm_sim_file = best_match('SimMatch_binfunc_arm_bins','csv')
+    if arm_sim_file is None:
+        SimMatch_arm_num = 0
+    else:
+        with open(arm_sim_file, 'r') as file:
+            lines = file.readlines()
+        SimMatch_arm_num = 0
+        for l in lines[1:]:
+            SimMatch_arm_num += int(l.split(',')[1])
+    
+    arm_func_file = best_match('functionID_arm_bins','csv')
+    if arm_func_file is None:
+        FunctionID_arm_num = 0
+    else:
+        with open(arm_func_file, 'r') as file:
+            lines = file.readlines()
+        FunctionID_arm_num = 0
+        for l in lines[1:]:
+            FunctionID_arm_num += int(l.split(',')[1])
+    
     # Xtensa
-    with open(best_match('SimMatch_binfunc_xtensa_bins','csv'), 'r') as file:
-        lines = file.readlines()
-    SimMatch_xtensa_num = 0
-    for l in lines[1:]:
-        SimMatch_xtensa_num += int(l.split(',')[1])
-    with open(best_match('functionID_xtensa_bins','csv'), 'r') as file:
-        lines = file.readlines()
-    FunctionID_xtensa_num = 0
-    for l in lines[1:]:
-        FunctionID_xtensa_num += int(l.split(',')[1])
+    xtensa_sim_file = best_match('SimMatch_binfunc_xtensa_bins','csv')
+    if xtensa_sim_file is None:
+        SimMatch_xtensa_num = 0
+    else:
+        with open(xtensa_sim_file, 'r') as file:
+            lines = file.readlines()
+        SimMatch_xtensa_num = 0
+        for l in lines[1:]:
+            SimMatch_xtensa_num += int(l.split(',')[1])
+    
+    xtensa_func_file = best_match('functionID_xtensa_bins','csv')
+    if xtensa_func_file is None:
+        FunctionID_xtensa_num = 0
+    else:
+        with open(xtensa_func_file, 'r') as file:
+            lines = file.readlines()
+        FunctionID_xtensa_num = 0
+        for l in lines[1:]:
+            FunctionID_xtensa_num += int(l.split(',')[1])
     table7 = md_table(['SimMatch', 'Function ID'], ['ARM','Xtensa'], [[SimMatch_arm_num, SimMatch_xtensa_num],[FunctionID_arm_num, FunctionID_xtensa_num]])
     return table7
 
