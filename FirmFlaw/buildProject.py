@@ -158,7 +158,15 @@ def main(args):
                 func_num.append([file_, -1, -1, os.path.getsize(noheader_), -1])
             finally:
                 signal.alarm(0)
-            project.saveAs(program, "/", program.getName(), True)
+            try:
+                project.saveAs(program, "/", program.getName(), True)
+            except Exception as e:
+                logging.warning(f"Failed to save project {program.getName()}: {e}")
+                # Try to remove existing file and retry
+                existing_file = os.path.join(project_location, program.getName())
+                if os.path.exists(existing_file):
+                    os.remove(existing_file)
+                    project.saveAs(program, "/", program.getName(), True)
             project.close(program)
     # write csv
     with open(f"./res/func_num_{project_name}.csv", "w") as file:
