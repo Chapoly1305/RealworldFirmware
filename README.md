@@ -100,7 +100,7 @@ analysis tool. To set up its dependencies:
 2. `cd $PROJECT_FOLDER/FirmFlaw`
 3. `mkdir logs res db fidb ghidra_projects
 firmwares`
-4. Install pyhidra: `pip3 install pyhidra==1.2.0`
+4. Install pyhidra: `pip3 install pyhidra==1.2.0 tqdm`
 5. `curl -L -O https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.1_build/ghidra_11.1_PUBLIC_20240607.zip`
 6. `unzip ghidra_11.1_PUBLIC_20240607.zip`
 7. `export GHIDRA_INSTALL_DIR=$PROJECT_FOLDER/FirmFlaw/ghidra_11.1_PUBLIC`
@@ -133,8 +133,7 @@ and copy the found firmware images to
 metadata.
 1. `cd $PROJECT_FOLDER/FirmProcessing`
 2. `sudo python3 run_step1_convert2bin.py`
-3. `python3 run_step2_binsorter.py
---enable-firmxray`
+3. `python3 run_step2_binsorter.py --enable-firmxray`
   
 The script `run_step1_convert2bin.py` takes in can-
 didate images in `FirmProcessing/originals` and de-
@@ -149,10 +148,9 @@ base address, entry point, and architecture when found.
 **[FirmFlaw]** The binary analysis tool.
 1. `cd $PROJECT_FOLDER/FirmFlaw`
 2. `./build.sh ../FirmProcessing/step2_postSig`
-3. `python3 Mitigation.py ./ghidra_projects
-arm_bins`
+3. `python3 Mitigation.py ./ghidra_projects arm_bins`
 4. `./FunctionID.sh && ./SimMatch.sh`
-5. `python3 ResGen.py`  
+5. `python3 ResGen.py 600`  
 After FirmFlaw is complete, we can find the results docu-
 mented in `./res/results.md`. This file presents the results
 of the complexity analysis, mitigation detection and library
