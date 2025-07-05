@@ -64,7 +64,7 @@ def main():
                 index = subdi.find(input_prefix)
                 o_path = bin_dir + subdi[index + len(input_prefix):]
 
-                for module in binwalk.scan('--magic', './magic/archives', '-e', '-M', '--rm', '-cl', '--run-as=root', '-C', o_path, i_path, quiet=True):
+                for module in binwalk.scan('--magic', './magic/archives', '-e', '-M', '--rm', '-c', '--run-as=root', '-C', o_path, i_path, quiet=True):
                     for result in module.results:
 
                         # any results leading to extracted files indicates a compressed one
