@@ -1,2 +1,13 @@
 FirmXRay/lib/ghidra.jar
+FirmXRay/base/
 *.pyc
+FirmFlaw/ghidra*
+FirmFlaw/logs/
+FirmFlaw/db/
+FirmFlaw/res/
+FirmFlaw/fidb/
+FirmXRay/out/
+FirmXRay/output/
+venv/
+FirmProcessing/step*
+FirmProcessing/output*
