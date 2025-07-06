@@ -82,7 +82,11 @@ def complexity_arm():
     for line in lines[1:]:
         s_ = line.split(',')
         funcs_ = int(s_[2])
-        size_ = int(s_[3])
+        # Handle "None" or invalid size values
+        try:
+            size_ = int(s_[3].strip())
+        except ValueError:
+            continue  # Skip entries with invalid size
         if funcs_ == 0:
             continue
         arm_funcs.append(funcs_)
@@ -439,17 +443,30 @@ def total_match_result():
 
 def mitigation():
     mpu_num = 0
-    with open(best_match('MPU','csv'), 'r') as file:
-        lines = file.readlines()
-    # -1 for the header
-    mpu_num += len(lines) - 1
-    with open(best_match('SMPU','csv'), 'r') as file:
-        lines = file.readlines()
-    mpu_num +=  len(lines) -1 
-    # trustzone
-    with open(best_match('trustzone_s','csv'),'r') as file:
-        lines = file.readlines()
-    trustzone_num = len(lines) -1
+    trustzone_num = 0
+    
+    # Check for MPU file
+    mpu_file = best_match('MPU','csv')
+    if mpu_file:
+        with open(mpu_file, 'r') as file:
+            lines = file.readlines()
+        # -1 for the header
+        mpu_num += len(lines) - 1
+    
+    # Check for SMPU file
+    smpu_file = best_match('SMPU','csv')
+    if smpu_file:
+        with open(smpu_file, 'r') as file:
+            lines = file.readlines()
+        mpu_num +=  len(lines) -1 
+    
+    # Check for trustzone file
+    trustzone_file = best_match('trustzone_s','csv')
+    if trustzone_file:
+        with open(trustzone_file,'r') as file:
+            lines = file.readlines()
+        trustzone_num = len(lines) -1
+    
     table10 = md_table(['ARM'],['MPU', 'TrustZone'],[[mpu_num, trustzone_num]])
     return table10
 
