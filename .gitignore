@@ -11,3 +11,4 @@ FirmXRay/output/
 venv/
 FirmProcessing/step*
 FirmProcessing/output*
+apk-dataset-extracted/
