@@ -55,13 +55,14 @@ def create(args):
     from ghidra.feature.fid.db import FidFileManager
     from ghidra.feature.fid.service import FidService
     from ghidra.util.task import ConsoleTaskMonitor
+    from java.io import IOException
 
     # create or open project 
     try:
         project = GhidraProject.openProject(args.project_path, args.project_name, True)
         logging.info(f'Opened project: {project.project.name}')
     except IOException:
-        loggin.error(f'No this project {args.project_path}/{args.project_name}')
+        logging.error(f'No this project {args.project_path}/{args.project_name}')
         return 
 
     monitor = ConsoleTaskMonitor()
@@ -162,7 +163,7 @@ def search(args):
         project = GhidraProject.openProject(args.project_path, args.project_name, True)
         logging.info(f'Opened project: {project.project.name}')
     except IOException:
-        loggin.error(f'No this project {args.project_path}/{args.project_name}')
+        logging.error(f'No this project {args.project_path}/{args.project_name}')
         return 
 
     monitor = ConsoleTaskMonitor()
