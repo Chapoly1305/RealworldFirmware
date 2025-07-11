@@ -8,7 +8,7 @@ from utils.key import *
 from pathlib import Path
 from utils.ghidra_helper import *
 from utils.launcher import HeadlessLoggingPyhidraLauncher
-from utils.sample_folders import get_current_res_dir
+from utils.sample_folders import get_current_res_dir, load_current_context, get_current_logs_dir
 # Import validation functions
 try:
     from utils.arm_valid import create_handlers, firm_valid, base_address, lang_str
@@ -16,7 +16,7 @@ except ImportError:
     # Functions will be loaded via exec if not available as module
     pass
 
-log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
+log_time = time.strftime("%m_%d_%H_%M")
 func_num = None
 project = None
 start_time = None
@@ -48,9 +48,30 @@ def main(args):
     global func_num
     global project
     global start_time
+    
+    # Determine log path based on project type
+    if args.project_name.startswith('target_'):
+        # Try to load the context first
+        if load_current_context():
+            try:
+                logs_dir = get_current_logs_dir()
+                pyhidra_log_path = logs_dir / f'Pyhidra_{args.project_name}_{log_time}.log'
+            except ValueError:
+                # Fallback if no current analysis context
+                os.makedirs('./logs', exist_ok=True)
+                pyhidra_log_path = f'./logs/Pyhidra_{args.project_name}_{log_time}.log'
+        else:
+            # Fallback if context not loaded
+            os.makedirs('./logs', exist_ok=True)
+            pyhidra_log_path = f'./logs/Pyhidra_{args.project_name}_{log_time}.log'
+    else:
+        # Match database building - use global logs directory
+        os.makedirs('./logs', exist_ok=True)
+        pyhidra_log_path = f'./logs/Pyhidra_{args.project_name}_{log_time}.log'
+    
     # pyhidra launcher
     launcher = HeadlessLoggingPyhidraLauncher(
-        verbose=True, log_path=f"./logs/Pyhidra_{args.project_name}_{log_time}.log"
+        verbose=True, log_path=str(pyhidra_log_path)
     )
     launcher.start()
 
@@ -183,14 +204,22 @@ def main(args):
         csv_path = f'./temp_csv/func_num_{project_name}.csv'
     elif project_name.startswith('target_'):
         # Target analysis - use sample-specific res directory
-        try:
-            res_dir = get_current_res_dir()
-            csv_path = res_dir / f'func_num_{project_name}.csv'
-        except ValueError:
-            # Fallback if no current analysis context
+        # Try to load the context first
+        if load_current_context():
+            try:
+                res_dir = get_current_res_dir()
+                csv_path = res_dir / f'func_num_{project_name}.csv'
+            except ValueError:
+                # Fallback if no current analysis context
+                os.makedirs('./res', exist_ok=True)
+                csv_path = f'./res/func_num_{project_name}.csv'
+        else:
+            # Fallback if context not loaded
+            os.makedirs('./res', exist_ok=True)
             csv_path = f'./res/func_num_{project_name}.csv'
     else:
         # Match database building - use global res directory
+        os.makedirs('./res', exist_ok=True)
         csv_path = f'./res/func_num_{project_name}.csv'
     
     with open(csv_path, "w") as file:
@@ -221,8 +250,29 @@ if __name__ == "__main__":
     # log
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     DATE_FORMAT = "%m/%d/%Y %H:%M:%S"
+    
+    # Determine log path based on project type
+    if args.project_name.startswith('target_'):
+        # Try to load the context first
+        if load_current_context():
+            try:
+                logs_dir = get_current_logs_dir()
+                log_filename = logs_dir / f'buildProject_{args.project_name}_{log_time}.log'
+            except ValueError:
+                # Fallback if no current analysis context
+                os.makedirs('./logs', exist_ok=True)
+                log_filename = f'./logs/buildProject_{args.project_name}_{log_time}.log'
+        else:
+            # Fallback if context not loaded
+            os.makedirs('./logs', exist_ok=True)
+            log_filename = f'./logs/buildProject_{args.project_name}_{log_time}.log'
+    else:
+        # Match database building - use global logs directory
+        os.makedirs('./logs', exist_ok=True)
+        log_filename = f'./logs/buildProject_{args.project_name}_{log_time}.log'
+    
     logging.basicConfig(
-        filename=f"./logs/buildProject_{args.project_name}_{log_time}.log",
+        filename=str(log_filename),
         level=logging.DEBUG,
         format=LOG_FORMAT,
         datefmt=DATE_FORMAT,
@@ -243,10 +293,34 @@ if __name__ == "__main__":
         logging.error("Exit with keyboard")
         project.close()
         if func_num is not None:
-            # write csv
-            with open(f"./res/func_num_{project_name}.csv", "w") as file:
+            # write csv - use same logic as normal path
+            if '_file_' in project_name and project_name.split('_file_')[-1].isdigit():
+                # Write to temp directory for fragments
+                os.makedirs('./temp_csv', exist_ok=True)
+                csv_path = f'./temp_csv/func_num_{project_name}.csv'
+            elif project_name.startswith('target_'):
+                # Target analysis - use sample-specific res directory
+                # Try to load the context first
+                if load_current_context():
+                    try:
+                        res_dir = get_current_res_dir()
+                        csv_path = res_dir / f'func_num_{project_name}.csv'
+                    except ValueError:
+                        # Fallback if no current analysis context
+                        os.makedirs('./res', exist_ok=True)
+                        csv_path = f'./res/func_num_{project_name}.csv'
+                else:
+                    # Fallback if context not loaded
+                    os.makedirs('./res', exist_ok=True)
+                    csv_path = f'./res/func_num_{project_name}.csv'
+            else:
+                # Match database building - use global res directory
+                os.makedirs('./res', exist_ok=True)
+                csv_path = f'./res/func_num_{project_name}.csv'
+                
+            with open(csv_path, "w") as file:
                 file.write("Program, Handlers, Functions, Size, AnalysisTime\n")
                 for i in func_num:
-                    line = ", ".join(j for j in i) + "\n"
+                    line = ", ".join(str(j) for j in i) + "\n"
                     file.write(line)
             # end

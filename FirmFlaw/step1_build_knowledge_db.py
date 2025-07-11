@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Complete parallel processing with FID support.
-Creates one Ghidra project per file for maximum parallelism.
-Keeps all projects for FID creation.
-Includes checkpoint/resume functionality.
+Step 1: Build Knowledge Database
+Creates database and FID files from match_base directory.
+Merges functionality from prepare.sh and database building part of run_parallel_complete.py
 """
 import os
 import sys
@@ -17,13 +16,9 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 import logging
+import argparse
 
-from utils.sample_folders import (
-    set_current_analysis, get_current_sample_folder, 
-    get_current_temp_dir, get_current_db_dir, cleanup_legacy_folders
-)
-
-log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
+log_time = time.strftime("%m_%d_%H_%M")
 
 class CheckpointManager:
     """Manages checkpoint file for tracking progress"""
@@ -96,6 +91,13 @@ class CheckpointManager:
                 completed.append(info['project_info'])
         return completed
 
+def create_directories():
+    """Create necessary directories (merged from prepare.sh)"""
+    directories = ["./logs", "./res", "./db", "./fidb", "./ghidra_projects"]
+    for dir_path in directories:
+        Path(dir_path).mkdir(exist_ok=True)
+        logging.info(f"Ensured directory exists: {dir_path}")
+
 def setup_logging():
     """Setup logging configuration"""
     log_dir = Path('./logs')
@@ -105,7 +107,7 @@ def setup_logging():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_dir / f'run_parallel_complete_{log_time}.log'),
+            logging.FileHandler(log_dir / f'step1_build_knowledge_db_{log_time}.log'),
             logging.StreamHandler(sys.stdout)
         ]
     )
@@ -433,32 +435,42 @@ def cleanup_individual_databases(db_files):
             logging.error(f"Error removing {db_file}: {e}")
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python3 run_parallel_complete.py <project_name> <source_dir> [num_workers] [--fresh] [--target <target_file>]")
-        print("       Add --fresh to ignore existing checkpoint and start over")
-        print("       Add --target <file> to also conduct matching on a target file")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='Step 1: Build knowledge database from firmware files',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s ./match_base                     # Build from match_base with default name
+  %(prog)s ./match_base -n my_firmware      # Build with custom project name
+  %(prog)s ./match_base --fresh             # Ignore checkpoint and start fresh
+  %(prog)s ./match_base -w 8                # Use 8 workers for parallel processing
+        """
+    )
+    
+    parser.add_argument('source_dir', help='Directory containing firmware files to build database from')
+    parser.add_argument('-n', '--name', default='firmware_match', 
+                        help='Project name (default: firmware_match)')
+    parser.add_argument('-w', '--workers', type=int, default=mp.cpu_count(),
+                        help=f'Number of parallel workers (default: {mp.cpu_count()})')
+    parser.add_argument('--fresh', action='store_true', 
+                        help='Ignore existing checkpoint and start over')
+    
+    args = parser.parse_args()
     
     setup_logging()
     
-    project_name = sys.argv[1]
-    source_dir = Path(sys.argv[2])
-    num_workers = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else mp.cpu_count()
-    force_fresh = '--fresh' in sys.argv
+    # Create necessary directories (functionality from prepare.sh)
+    logging.info("Creating necessary directories...")
+    create_directories()
     
-    # Parse target file if provided
-    target_file = None
-    if '--target' in sys.argv:
-        target_idx = sys.argv.index('--target')
-        if target_idx + 1 < len(sys.argv):
-            target_file = Path(sys.argv[target_idx + 1])
-            if not target_file.exists():
-                logging.error(f"Target file {target_file} does not exist")
-                sys.exit(1)
-    
+    source_dir = Path(args.source_dir)
     if not source_dir.exists():
         logging.error(f"Source directory {source_dir} does not exist")
         sys.exit(1)
+    
+    project_name = args.name
+    num_workers = args.workers
+    force_fresh = args.fresh
     
     # Create temp analysis directory
     temp_analysis_dir = Path(f"./temp_analysis/{project_name}")
@@ -634,102 +646,20 @@ def main():
     logging.info(f"Total processing time: {elapsed:.2f} seconds")
     logging.info(f"Average time per file: {elapsed/len(all_files):.2f} seconds")
     
-    # If target file provided, conduct matching
-    if target_file:
-        logging.info(f"\nStarting matching process for target: {target_file}")
-        
-        # Step 1: Set up sample-specific folder structure
-        target_project_name = f"target_{target_file.stem}"
-        analysis_timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-        set_current_analysis(target_project_name, analysis_timestamp)
-        
-        sample_folder = get_current_sample_folder()
-        sample_db_dir = get_current_db_dir()
-        sample_temp_dir = get_current_temp_dir()
-        
-        logging.info(f"Analysis results will be saved to: {sample_folder}")
-        
-        # Create temporary directory for target processing
-        target_dir = Path(f"./temp_target_{int(time.time())}")
-        target_dir.mkdir(exist_ok=True)
-        
-        # Copy target file
-        shutil.copy2(target_file, target_dir)
-        
-        # Build Ghidra project for target
-        cmd = [
-            sys.executable,
-            "buildProject.py",
-            "./ghidra_projects",
-            target_project_name,
-            str(target_dir),
-            "-s", "./utils/valid.py"
-        ]
-        
-        logging.info(f"Analyzing target file: {target_file}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            # Step 2: Create database for target
-            cmd = [
-                sys.executable,
-                "MatchDB.py",
-                "./ghidra_projects",
-                target_project_name
-            ]
-            
-            logging.info("Creating database for target")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                # Step 3: Run FID search against all FID files
-                logging.info("Running FID search...")
-                cmd = [
-                    sys.executable,
-                    "FidSearchAll.py",  # New script to search all FIDs
-                    "./ghidra_projects",
-                    target_project_name,
-                    "./fidb"
-                ]
-                subprocess.run(cmd, capture_output=True, text=True)
-                
-                # Step 4: Run SimMatch
-                logging.info("Running similarity matching...")
-                cmd = [
-                    sys.executable,
-                    "SimMatch.py",
-                    f"./db/binfunc_{target_project_name}.db",
-                    f"./db/binfunc_{project_name}.db"
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                
-                if result.returncode == 0:
-                    logging.info(f"Matching complete! Check results in {sample_folder}/res/")
-                else:
-                    logging.error(f"SimMatch failed: {result.stderr}")
-            else:
-                logging.error(f"Failed to create target database: {result.stderr}")
-        else:
-            logging.error(f"Failed to analyze target: {result.stderr}")
-        
-        # Cleanup target temp directory
-        shutil.rmtree(target_dir, ignore_errors=True)
-        
-        # For target analysis, temp files are preserved in sample folder
-        logging.info(f"Target analysis temp files preserved in: {sample_temp_dir}")
+    # Cleanup temp analysis directory
+    temp_analysis_dir = Path(f"./temp_analysis/{project_name}")
+    if temp_analysis_dir.exists():
+        try:
+            shutil.rmtree(temp_analysis_dir)
+            logging.info(f"Cleaned up temp analysis directory: {temp_analysis_dir}")
+        except Exception as e:
+            logging.warning(f"Could not remove temp directory {temp_analysis_dir}: {e}")
     
-    # Cleanup temp analysis directory for regular analysis (match database building)
-    else:
-        temp_analysis_dir = Path(f"./temp_analysis/{project_name}")
-        if temp_analysis_dir.exists():
-            try:
-                shutil.rmtree(temp_analysis_dir)
-                logging.info(f"Cleaned up temp analysis directory: {temp_analysis_dir}")
-            except Exception as e:
-                logging.warning(f"Could not remove temp directory {temp_analysis_dir}: {e}")
-    
-    # Clean up legacy folders if empty
-    cleanup_legacy_folders()
+    logging.info("\nKnowledge database built successfully!")
+    logging.info(f"Database location: ./db/binfunc_{project_name}.db")
+    logging.info("FID files: ./fidb/")
+    logging.info("\nTo identify a firmware, run:")
+    logging.info(f"  python3 step2_firmware_identification.py -f <firmware_file>")
 
 if __name__ == "__main__":
     main()

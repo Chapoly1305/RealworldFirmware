@@ -8,7 +8,7 @@ import logging
 from pathlib import Path 
 from utils.launcher import HeadlessLoggingPyhidraLauncher
 from utils.sample_folders import get_current_res_dir
-log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
+log_time = time.strftime("%m_%d_%H_%M")
     
 def report(name, result):
     logging.info(f'{name}')

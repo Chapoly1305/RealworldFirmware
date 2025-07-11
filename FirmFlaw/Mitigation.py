@@ -8,8 +8,8 @@ import argparse
 import logging 
 from pathlib import Path 
 from utils.launcher import HeadlessLoggingPyhidraLauncher
-from utils.sample_folders import get_current_res_dir
-log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
+from utils.sample_folders import get_current_res_dir, load_current_context, get_current_logs_dir
+log_time = time.strftime("%m_%d_%H_%M")
    
 quick_mode = False
 MPU_START = 0xe000ed90
@@ -217,7 +217,25 @@ def skip(name: str) -> bool:
 
 def main(args):
     signal.signal(signal.SIGALRM, timeout_handler)
-    launcher = HeadlessLoggingPyhidraLauncher(verbose=True, log_path='./launch.log')
+    
+    # Determine log path based on project type
+    if args.project_name.startswith('target_'):
+        # Try to load the context first
+        if load_current_context():
+            try:
+                logs_dir = get_current_logs_dir()
+                pyhidra_log_path = logs_dir / f'Pyhidra_mitigation_{args.project_name}_{log_time}.log'
+            except ValueError:
+                # Fallback if no current analysis context
+                pyhidra_log_path = './launch.log'
+        else:
+            # Fallback if context not loaded
+            pyhidra_log_path = './launch.log'
+    else:
+        # Match database - use default log path
+        pyhidra_log_path = './launch.log'
+    
+    launcher = HeadlessLoggingPyhidraLauncher(verbose=True, log_path=str(pyhidra_log_path))
     launcher.start()
     # import 
     from ghidra.base.project import GhidraProject
@@ -329,7 +347,32 @@ if __name__ == "__main__":
     #LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     LOG_FORMAT="%(message)s"
     DATE_FORMAT = "%m/%d/%Y %H:%M:%S"
-    logging.basicConfig(filename=f'./logs/mitigation_{log_time}.log', level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT)
+    
+    # Determine log path based on project type
+    if args.project_name.startswith('target_'):
+        # Try to load the context first
+        if load_current_context():
+            try:
+                logs_dir = get_current_logs_dir()
+                log_filename = logs_dir / f'mitigation_{args.project_name}_{log_time}.log'
+            except ValueError:
+                # Fallback if no current analysis context
+                import os
+                os.makedirs('./logs', exist_ok=True)
+                log_filename = f'./logs/mitigation_{log_time}.log'
+        else:
+            # Fallback if context not loaded
+            import os
+            os.makedirs('./logs', exist_ok=True)
+            log_filename = f'./logs/mitigation_{log_time}.log'
+    else:
+        # Match database - use global logs directory
+        import os
+        os.makedirs('./logs', exist_ok=True)
+        log_filename = f'./logs/mitigation_{log_time}.log'
+    
+    logging.basicConfig(filename=str(log_filename), level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT)
+    
     try:
         if args.quick:
             logging.info("Quick Mode")

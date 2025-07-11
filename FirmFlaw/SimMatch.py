@@ -7,10 +7,10 @@ from pathlib import Path
 from utils.db import *
 from utils.key import *
 from utils.match import *
-from utils.sample_folders import get_current_res_dir
+from utils.sample_folders import get_current_res_dir, get_current_logs_dir, load_current_context
 from tqdm import tqdm,trange
 
-log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
+log_time = time.strftime("%m_%d_%H_%M")
 
 def timeout_handler(signum, frame):
     raise TimeoutError("Timed out!")
@@ -67,12 +67,20 @@ def main(args):
     
     # Determine output directory - if input_db is a target, use sample-specific folder
     if 'target_' in str(args.input_db.name):
-        try:
-            res_dir = get_current_res_dir()
-        except ValueError:
-            # Fallback if no current analysis context
+        # Try to load the context first
+        if load_current_context():
+            try:
+                res_dir = get_current_res_dir()
+            except ValueError:
+                # Fallback if no current analysis context
+                os.makedirs('./res', exist_ok=True)
+                res_dir = Path('./res')
+        else:
+            # Fallback if context not loaded
+            os.makedirs('./res', exist_ok=True)
             res_dir = Path('./res')
     else:
+        os.makedirs('./res', exist_ok=True)
         res_dir = Path('./res')
     
     # write json 
@@ -96,7 +104,28 @@ if __name__ == "__main__":
     # log
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     DATE_FORMAT = "%m/%d/%Y %H:%M:%S"
-    logging.basicConfig(filename=f'./logs/SimMatch_{args.input_db.name}_{log_time}.log', level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT)
+    
+    # Determine log path based on input database
+    if 'target_' in str(args.input_db.name):
+        # Try to load the context first
+        if load_current_context():
+            try:
+                logs_dir = get_current_logs_dir()
+                log_filename = logs_dir / f'SimMatch_{args.input_db.name}_{log_time}.log'
+            except ValueError:
+                # Fallback if no current analysis context
+                os.makedirs('./logs', exist_ok=True)
+                log_filename = f'./logs/SimMatch_{args.input_db.name}_{log_time}.log'
+        else:
+            # Fallback if context not loaded
+            os.makedirs('./logs', exist_ok=True)
+            log_filename = f'./logs/SimMatch_{args.input_db.name}_{log_time}.log'
+    else:
+        # Match database - use global logs directory
+        os.makedirs('./logs', exist_ok=True)
+        log_filename = f'./logs/SimMatch_{args.input_db.name}_{log_time}.log'
+    
+    logging.basicConfig(filename=str(log_filename), level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT)
     try:
         main(args)
     except KeyboardInterrupt:

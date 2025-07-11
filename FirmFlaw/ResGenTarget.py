@@ -4,10 +4,10 @@ import time
 import os
 import json
 from pathlib import Path
-from utils.sample_folders import get_current_res_dir
+from utils.sample_folders import get_current_res_dir, load_current_context, get_current_logs_dir
 
 threshold = 2
-log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
+log_time = time.strftime("%m_%d_%H_%M")
 
 def md_table(row, col, data, float_=False):
     '''
@@ -231,9 +231,23 @@ if __name__ == "__main__":
     # Setup logging
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     DATE_FORMAT = "%m/%d/%Y %H:%M:%S"
-    os.makedirs('./logs', exist_ok=True)
+    
+    # Load analysis context first (for target analysis)
+    if load_current_context():
+        try:
+            logs_dir = get_current_logs_dir()
+            log_filename = logs_dir / f'ResGenTarget_{log_time}.log'
+        except ValueError:
+            # Fallback if no current analysis context
+            os.makedirs('./logs', exist_ok=True)
+            log_filename = f'./logs/ResGenTarget_{log_time}.log'
+    else:
+        # Fallback if context not loaded
+        os.makedirs('./logs', exist_ok=True)
+        log_filename = f'./logs/ResGenTarget_{log_time}.log'
+    
     logging.basicConfig(
-        filename=f'./logs/ResGenTarget_{log_time}.log', 
+        filename=str(log_filename), 
         level=logging.DEBUG, 
         format=LOG_FORMAT, 
         datefmt=DATE_FORMAT

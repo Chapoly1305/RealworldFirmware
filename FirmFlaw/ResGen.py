@@ -5,9 +5,22 @@ import os
 import json
 from pathlib import Path
 import math
+from utils.sample_folders import get_current_res_dir
 
 threshold = 2
-log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
+log_time = time.strftime("%m_%d_%H_%M")
+
+def get_res_directory():
+    """
+    Get the appropriate res directory based on analysis context.
+    Uses sample-specific folder if target analysis context is set, otherwise uses legacy ./res
+    """
+    try:
+        # Try to get current sample res directory (for target analysis)
+        return get_current_res_dir()
+    except ValueError:
+        # Fallback to legacy res directory (for regular processing)
+        return Path('./res')
 
 def md_table(row, col, data, float_=False):
     '''
@@ -39,10 +52,11 @@ def best_match(prefix, ext):
     '''
     max_size = 0
     match_ = None 
-    for i in os.listdir('./res/'):
+    res_dir = get_res_directory()
+    for i in os.listdir(res_dir):
         if not i.startswith(prefix) or not i.endswith(ext):
             continue
-        path_ = Path(f'./res/{i}')
+        path_ = res_dir / i
         size_ = os.path.getsize(path_)
         if size_ > max_size:
             max_size = size_
@@ -74,7 +88,8 @@ def median(arr):
 # Complexity: function and size 
 def complexity_arm():
     # ARM
-    with open('./res/func_num_arm_bins.csv') as file:
+    res_dir = get_res_directory()
+    with open(res_dir / 'func_num_arm_bins.csv') as file:
         lines = file.readlines()
     
     arm_funcs = []
@@ -123,7 +138,8 @@ def complexity_arm():
 
 def complexity_xtensa():
     # Xtensa
-    with open('./res/func_num_xtensa_bins.csv') as file:
+    res_dir = get_res_directory()
+    with open(res_dir / 'func_num_xtensa_bins.csv') as file:
         lines = file.readlines()
     
     xtensa_funcs = []
@@ -303,12 +319,13 @@ def library_arm():
         SimMatch_arm_match_full = {}
     else:
         (SimMatch_arm_match, SimMatch_arm_match_full) = match_program(sim_match_file, arm_funcdb)
-    with open('./res/SimMatch_arm_lib_result.json', 'w') as file:
+    res_dir = get_res_directory()
+    with open(res_dir / 'SimMatch_arm_lib_result.json', 'w') as file:
         json.dump(SimMatch_arm_match, file, indent=4)
-    with open('./res/SimMatch_arm_lib_full_result.json', 'w') as file:
+    with open(res_dir / 'SimMatch_arm_lib_full_result.json', 'w') as file:
         json.dump(SimMatch_arm_match_full, file, indent=4)
     (SimMatch_arm_filter, SimMatch_arm_filter_full) = filter_match(SimMatch_arm_match, SimMatch_arm_match_full)
-    with open('./res/SimMatch_arm_lib_filter_result.json', 'w') as file:
+    with open(res_dir / 'SimMatch_arm_lib_filter_result.json', 'w') as file:
         json.dump(SimMatch_arm_filter_full, file, indent=4)
     # FunctionID
     func_id_file = best_match('functionID_arm_bins', 'json')
@@ -317,12 +334,12 @@ def library_arm():
         FunctionID_arm_match_full = {}
     else:
         (FunctionID_arm_match, FunctionID_arm_match_full) = match_program(func_id_file, arm_funcdb)
-    with open('./res/FunctionID_arm_lib_result.json', 'w') as file:
+    with open(res_dir / 'FunctionID_arm_lib_result.json', 'w') as file:
         json.dump(FunctionID_arm_match, file, indent=4)
-    with open('./res/FunctionID_arm_lib_full_result.json', 'w') as file:
+    with open(res_dir / 'FunctionID_arm_lib_full_result.json', 'w') as file:
         json.dump(FunctionID_arm_match_full, file, indent=4)
     (FunctionID_arm_filter, FunctionID_arm_filter_full) = filter_match(FunctionID_arm_match, FunctionID_arm_match_full)
-    with open('./res/FunctionID_arm_lib_filter_result.json', 'w') as file:
+    with open(res_dir / 'FunctionID_arm_lib_filter_result.json', 'w') as file:
         json.dump(FunctionID_arm_filter_full, file, indent=4)
     
     # generate table 
@@ -354,12 +371,13 @@ def library_xtensa():
         SimMatch_xtensa_match_full = {}
     else:
         (SimMatch_xtensa_match, SimMatch_xtensa_match_full) = match_program(sim_match_file, esp_funcdb)
-    with open('./res/SimMatch_xtensa_lib_result.json', 'w') as file:
+    res_dir = get_res_directory()
+    with open(res_dir / 'SimMatch_xtensa_lib_result.json', 'w') as file:
         json.dump(SimMatch_xtensa_match, file, indent=4)
-    with open('./res/SimMatch_xtensa_lib_full_result.json', 'w') as file:
+    with open(res_dir / 'SimMatch_xtensa_lib_full_result.json', 'w') as file:
         json.dump(SimMatch_xtensa_match_full, file, indent=4)
     (SimMatch_xtensa_filter, SimMatch_xtensa_filter_full) = filter_match(SimMatch_xtensa_match, SimMatch_xtensa_match_full)
-    with open('./res/SimMatch_xtensa_lib_filter_result.json', 'w') as file:
+    with open(res_dir / 'SimMatch_xtensa_lib_filter_result.json', 'w') as file:
         json.dump(SimMatch_xtensa_filter_full, file, indent=4)
     # FunctionID
     func_id_file = best_match('functionID_xtensa_bins', 'json')
@@ -368,12 +386,12 @@ def library_xtensa():
         FunctionID_xtensa_match_full = {}
     else:
         (FunctionID_xtensa_match, FunctionID_xtensa_match_full) = match_program(func_id_file, esp_funcdb)
-    with open('./res/FunctionID_xtensa_lib_result.json', 'w') as file:
+    with open(res_dir / 'FunctionID_xtensa_lib_result.json', 'w') as file:
         json.dump(FunctionID_xtensa_match, file, indent=4)
-    with open('./res/FunctionID_xtensa_lib_full_result.json', 'w') as file:
+    with open(res_dir / 'FunctionID_xtensa_lib_full_result.json', 'w') as file:
         json.dump(FunctionID_xtensa_match_full, file, indent=4)
     (FunctionID_xtensa_filter, FunctionID_xtensa_filter_full) = filter_match(FunctionID_xtensa_match, FunctionID_xtensa_match_full)
-    with open('./res/FunctionID_xtensa_lib_filter_result.json', 'w') as file:
+    with open(res_dir / 'FunctionID_xtensa_lib_filter_result.json', 'w') as file:
         json.dump(FunctionID_xtensa_filter_full, file, indent=4)
     
     # generate table 
@@ -491,7 +509,8 @@ def main(args):
     table10 = mitigation()
     md_ += f'{table10}\n\n'
     
-    with open('./res/results.md','w') as file:
+    res_dir = get_res_directory()
+    with open(res_dir / 'results.md','w') as file:
         file.write(md_)
     
 

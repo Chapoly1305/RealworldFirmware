@@ -2,6 +2,20 @@
 import os
 import csv
 from collections import defaultdict
+from pathlib import Path
+from utils.sample_folders import get_current_res_dir, load_current_context
+
+def get_res_directory():
+    """
+    Get the appropriate res directory based on analysis context.
+    Uses sample-specific folder if target analysis context is set, otherwise uses legacy ./res
+    """
+    try:
+        # Try to get current sample res directory (for target analysis)
+        return get_current_res_dir()
+    except ValueError:
+        # Fallback to legacy res directory (for regular processing)
+        return Path('./res')
 
 def merge_matchdb_csv():
     """Merge all MatchDB CSV files into one"""
@@ -21,7 +35,8 @@ def merge_matchdb_csv():
                     merged_data[program] += functions
     
     # Write merged data
-    with open('./res/MatchDB_merged.csv', 'w', newline='') as f:
+    res_dir = get_res_directory()
+    with open(res_dir / 'MatchDB_merged.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['Program', 'Functions'])
         for program, functions in sorted(merged_data.items()):
@@ -58,7 +73,8 @@ def merge_func_num_csv():
                     merged_data[program][3] += analysis_time
     
     # Write merged data
-    with open('./res/func_num_merged.csv', 'w', newline='') as f:
+    res_dir = get_res_directory()
+    with open(res_dir / 'func_num_merged.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['Program', 'Handlers', 'Functions', 'Size', 'AnalysisTime'])
         for program, data in sorted(merged_data.items()):
@@ -94,6 +110,9 @@ def remove_fragments():
 
 if __name__ == "__main__":
     import sys
+    
+    # Try to load analysis context (for target analysis)
+    load_current_context()
     
     print("Merging CSV files...")
     merge_matchdb_csv()
