@@ -8,6 +8,12 @@ from utils.key import *
 from pathlib import Path
 from utils.ghidra_helper import *
 from utils.launcher import HeadlessLoggingPyhidraLauncher
+# Import validation functions
+try:
+    from utils.arm_valid import create_handlers, firm_valid, base_address, lang_str
+except ImportError:
+    # Functions will be loaded via exec if not available as module
+    pass
 
 log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
 func_num = None
@@ -139,7 +145,7 @@ def main(args):
                 analysis_time = int(time.time() - analysis_time)
                 func_num.append(
                     [
-                        file_,
+                        noheader_.name,
                         handler_num,
                         program.getFunctionManager().getFunctionCount(),
                         os.path.getsize(noheader_),
@@ -154,8 +160,8 @@ def main(args):
                 )
                 num += 1
             except TimeoutError:
-                logging.info(f"Analyze {file_} timeout!!")
-                func_num.append([file_, -1, -1, os.path.getsize(noheader_), -1])
+                logging.info(f"Analyze {noheader_.name} timeout!!")
+                func_num.append([noheader_.name, -1, -1, os.path.getsize(noheader_), -1])
             finally:
                 signal.alarm(0)
             try:
@@ -169,7 +175,16 @@ def main(args):
                     project.saveAs(program, "/", program.getName(), True)
             project.close(program)
     # write csv
-    with open(f"./res/func_num_{project_name}.csv", "w") as file:
+    # Check if this is a fragment (numbered project)
+    if '_file_' in project_name and project_name.split('_file_')[-1].isdigit():
+        # Write to temp directory for fragments
+        os.makedirs('./temp_csv', exist_ok=True)
+        csv_path = f'./temp_csv/func_num_{project_name}.csv'
+    else:
+        # Write to res directory for main projects
+        csv_path = f'./res/func_num_{project_name}.csv'
+    
+    with open(csv_path, "w") as file:
         file.write("Program, Handlers, Functions, Size, AnalysisTime\n")
         for i in func_num:
             line = ", ".join(str(j) for j in i) + "\n"
@@ -211,7 +226,7 @@ if __name__ == "__main__":
         else:
             # exec valid script
             with open(args.script, "r") as file:
-                exec(file.read())
+                exec(file.read(), globals())
             main(args)
     except KeyboardInterrupt:
         if start_time is not None:

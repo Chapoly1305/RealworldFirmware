@@ -88,7 +88,16 @@ def main(args):
         num += 1
         project.close(program)
     # write csv 
-    with open(f'./res/MatchDB_{project_name}.csv', 'w') as file:
+    # Check if this is a fragment (numbered project)
+    if '_file_' in project_name and project_name.split('_file_')[-1].isdigit():
+        # Write to temp directory for fragments
+        os.makedirs('./temp_csv', exist_ok=True)
+        csv_path = f'./temp_csv/MatchDB_{project_name}.csv'
+    else:
+        # Write to res directory for main projects
+        csv_path = f'./res/MatchDB_{project_name}.csv'
+    
+    with open(csv_path, 'w') as file:
         file.write('Program, Functions\n')
         for i in func_num:
             file.write(f"{i[0]}, {i[1]}\n")
