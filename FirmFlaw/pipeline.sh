@@ -23,14 +23,14 @@ TARGET_FILE=$2
 echo "${green}Building match database from: $MATCH_BASE${reset}"
 if [ -z "$TARGET_FILE" ]; then
     # Just build database
-    python3 run_parallel_complete.py firmware_match "$MATCH_BASE" --fresh
+    python3 run_parallel_complete.py firmware_match "$MATCH_BASE"
 else
     # Build database and match target
     if [ ! -f "$TARGET_FILE" ]; then
         echo "${red}Error: Target file '$TARGET_FILE' not found${reset}"
         exit 1
     fi
-    python3 run_parallel_complete.py firmware_match "$MATCH_BASE" --fresh --target "$TARGET_FILE"
+    python3 run_parallel_complete.py firmware_match "$MATCH_BASE" --target "$TARGET_FILE"
 fi
 
 # If target was provided, also run additional analyses
@@ -49,10 +49,11 @@ if [ ! -z "$TARGET_FILE" ]; then
     echo "${green}Generate Final Results${reset}"
     python3 ResGenTarget.py 2
     
-    echo "${green}Finish! Check results in ./res/${reset}"
-    echo "- FID results: ./res/FidSearchAll_${TARGET_NAME}_*.json"
-    echo "- SimMatch results: ./res/SimMatch_*.json"
-    echo "- Summary: ./res/target_analysis_results.md"
+    echo "${green}Finish! Results are organized in sample-specific folders${reset}"
+    echo "- Check ./results/${TARGET_NAME}_* for analysis results"
+    echo "- FID results: FidSearchAll_${TARGET_NAME}_*.json"
+    echo "- SimMatch results: SimMatch_*.json"
+    echo "- Summary: target_analysis_results.md"
 else
     # Merge CSV fragments for match database
     echo "${green}Merging CSV results${reset}"

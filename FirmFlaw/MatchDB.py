@@ -11,6 +11,7 @@ from utils.key import *
 from utils.match import *
 from utils.ghidra_helper import *
 from utils.launcher import HeadlessLoggingPyhidraLauncher
+from utils.sample_folders import get_current_db_dir, get_current_res_dir
 
 log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
 
@@ -43,7 +44,19 @@ def main(args):
         logging.error(f'No project: {project.project.name}')
         return 
 
-    db_ = Path('./db/binfunc_' + args.project_name + ".db")
+    # Determine database path based on project type
+    if args.project_name.startswith('target_'):
+        # Target analysis - use sample-specific db directory
+        try:
+            db_dir = get_current_db_dir()
+            db_ = db_dir / f'binfunc_{args.project_name}.db'
+        except ValueError:
+            # Fallback if no current analysis context
+            db_ = Path('./db/binfunc_' + args.project_name + ".db")
+    else:
+        # Match database building - use global db directory
+        db_ = Path('./db/binfunc_' + args.project_name + ".db")
+        
     if db_.exists():
         # TODO: skip the existed function
         logging.error(f'{db_} exist, remove it')
@@ -93,8 +106,16 @@ def main(args):
         # Write to temp directory for fragments
         os.makedirs('./temp_csv', exist_ok=True)
         csv_path = f'./temp_csv/MatchDB_{project_name}.csv'
+    elif project_name.startswith('target_'):
+        # Target analysis - use sample-specific res directory
+        try:
+            res_dir = get_current_res_dir()
+            csv_path = res_dir / f'MatchDB_{project_name}.csv'
+        except ValueError:
+            # Fallback if no current analysis context
+            csv_path = f'./res/MatchDB_{project_name}.csv'
     else:
-        # Write to res directory for main projects
+        # Match database building - use global res directory
         csv_path = f'./res/MatchDB_{project_name}.csv'
     
     with open(csv_path, 'w') as file:

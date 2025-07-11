@@ -7,6 +7,7 @@ from pathlib import Path
 from utils.db import *
 from utils.key import *
 from utils.match import *
+from utils.sample_folders import get_current_res_dir
 from tqdm import tqdm,trange
 
 log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
@@ -63,13 +64,24 @@ def main(args):
                                         'len2': len2}
     conn.close()
     conn1.close()
+    
+    # Determine output directory - if input_db is a target, use sample-specific folder
+    if 'target_' in str(args.input_db.name):
+        try:
+            res_dir = get_current_res_dir()
+        except ValueError:
+            # Fallback if no current analysis context
+            res_dir = Path('./res')
+    else:
+        res_dir = Path('./res')
+    
     # write json 
-    with open(f'./res/SimMatch_{args.input_db.name}_{args.database.name}_{log_time}.json', 'w') as file:
+    with open(res_dir / f'SimMatch_{args.input_db.name}_{args.database.name}_{log_time}.json', 'w') as file:
         json.dump(all_results, file, indent=4)
-    with open(f'./res/SimMaxMatch_{args.input_db.name}_{args.database.name}_{log_time}.json', 'w') as file:
+    with open(res_dir / f'SimMaxMatch_{args.input_db.name}_{args.database.name}_{log_time}.json', 'w') as file:
         json.dump(max_results, file, indent=4)
     # write csv 
-    with open(f'./res/SimMatch_{args.input_db.name}_{log_time}_statistic.csv', 'w') as file:
+    with open(res_dir / f'SimMatch_{args.input_db.name}_{log_time}_statistic.csv', 'w') as file:
         file.write(f'Program, Match Number\n')
         for (k,v) in max_results.items():
             file.write(f'{k},{len(v)}\n')

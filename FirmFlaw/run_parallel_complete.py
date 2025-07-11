@@ -18,6 +18,11 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 import logging
 
+from utils.sample_folders import (
+    set_current_analysis, get_current_sample_folder, 
+    get_current_temp_dir, get_current_db_dir, cleanup_legacy_folders
+)
+
 log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
 
 class CheckpointManager:
@@ -633,8 +638,18 @@ def main():
     if target_file:
         logging.info(f"\nStarting matching process for target: {target_file}")
         
-        # Step 1: Analyze target file
+        # Step 1: Set up sample-specific folder structure
         target_project_name = f"target_{target_file.stem}"
+        analysis_timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        set_current_analysis(target_project_name, analysis_timestamp)
+        
+        sample_folder = get_current_sample_folder()
+        sample_db_dir = get_current_db_dir()
+        sample_temp_dir = get_current_temp_dir()
+        
+        logging.info(f"Analysis results will be saved to: {sample_folder}")
+        
+        # Create temporary directory for target processing
         target_dir = Path(f"./temp_target_{int(time.time())}")
         target_dir.mkdir(exist_ok=True)
         
@@ -689,7 +704,7 @@ def main():
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 
                 if result.returncode == 0:
-                    logging.info(f"Matching complete! Check results in ./res/")
+                    logging.info(f"Matching complete! Check results in {sample_folder}/res/")
                 else:
                     logging.error(f"SimMatch failed: {result.stderr}")
             else:
@@ -699,15 +714,22 @@ def main():
         
         # Cleanup target temp directory
         shutil.rmtree(target_dir, ignore_errors=True)
+        
+        # For target analysis, temp files are preserved in sample folder
+        logging.info(f"Target analysis temp files preserved in: {sample_temp_dir}")
     
-    # Cleanup temp analysis directory
-    temp_analysis_dir = Path(f"./temp_analysis/{project_name}")
-    if temp_analysis_dir.exists():
-        try:
-            shutil.rmtree(temp_analysis_dir)
-            logging.info(f"Cleaned up temp analysis directory: {temp_analysis_dir}")
-        except Exception as e:
-            logging.warning(f"Could not remove temp directory {temp_analysis_dir}: {e}")
+    # Cleanup temp analysis directory for regular analysis (match database building)
+    else:
+        temp_analysis_dir = Path(f"./temp_analysis/{project_name}")
+        if temp_analysis_dir.exists():
+            try:
+                shutil.rmtree(temp_analysis_dir)
+                logging.info(f"Cleaned up temp analysis directory: {temp_analysis_dir}")
+            except Exception as e:
+                logging.warning(f"Could not remove temp directory {temp_analysis_dir}: {e}")
+    
+    # Clean up legacy folders if empty
+    cleanup_legacy_folders()
 
 if __name__ == "__main__":
     main()

@@ -4,6 +4,7 @@ import time
 import os
 import json
 from pathlib import Path
+from utils.sample_folders import get_current_res_dir
 
 threshold = 2
 log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
@@ -36,12 +37,19 @@ def best_match(prefix, ext):
     select the best match result from multiple run
     using prefix string and extension based on file size 
     '''
+    # Use current sample res directory for target analysis
+    try:
+        res_dir = get_current_res_dir()
+    except ValueError:
+        # Fallback if no current analysis context
+        res_dir = Path('./res')
+    
     max_size = 0
     match_ = None 
-    for i in os.listdir('./res/'):
+    for i in os.listdir(res_dir):
         if not i.startswith(prefix) or not i.endswith(ext):
             continue
-        path_ = Path(f'./res/{i}')
+        path_ = res_dir / i
         size_ = os.path.getsize(path_)
         if size_ > max_size:
             max_size = size_
@@ -57,11 +65,18 @@ def target_analysis():
     '''
     target_info = {}
     
+    # Use current sample res directory for target analysis
+    try:
+        res_dir = get_current_res_dir()
+    except ValueError:
+        # Fallback if no current analysis context
+        res_dir = Path('./res')
+    
     # Find target CSV file
     target_csv = None
-    for f in os.listdir('./res/'):
+    for f in os.listdir(res_dir):
         if f.startswith('func_num_target_') and f.endswith('.csv'):
-            target_csv = f'./res/{f}'
+            target_csv = res_dir / f
             break
     
     if target_csv and os.path.exists(target_csv):
@@ -195,7 +210,13 @@ def main(args):
         md_ += "No security mitigation methods detected.\n\n"
     
     # Write results
-    output_file = './res/target_analysis_results.md'
+    try:
+        res_dir = get_current_res_dir()
+        output_file = res_dir / 'target_analysis_results.md'
+    except ValueError:
+        # Fallback if no current analysis context
+        output_file = './res/target_analysis_results.md'
+    
     with open(output_file, 'w') as file:
         file.write(md_)
     

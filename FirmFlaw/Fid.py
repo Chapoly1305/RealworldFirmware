@@ -7,6 +7,7 @@ import argparse
 import logging 
 from pathlib import Path 
 from utils.launcher import HeadlessLoggingPyhidraLauncher
+from utils.sample_folders import get_current_res_dir
 log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
     
 def report(name, result):
@@ -195,9 +196,20 @@ def search(args):
         project.close(program_)
     # write results
     logging.info(f'Total Search Time {time.time()-start_time} for {len(match_num)} programs')
-    with open(f'./res/functionID_{args.project_name}_{args.fid_name}_{log_time}.json', 'w') as file:
+    
+    # Determine output directory based on project type
+    if args.project_name.startswith('target_'):
+        try:
+            res_dir = get_current_res_dir()
+        except ValueError:
+            # Fallback if no current analysis context
+            res_dir = Path('./res')
+    else:
+        res_dir = Path('./res')
+    
+    with open(res_dir / f'functionID_{args.project_name}_{args.fid_name}_{log_time}.json', 'w') as file:
         json.dump(all_matches, file, indent=4)
-    with open(f'./res/functionID_{args.project_name}_{args.fid_name}_{log_time}.csv', 'w') as file:
+    with open(res_dir / f'functionID_{args.project_name}_{args.fid_name}_{log_time}.csv', 'w') as file:
         file.write("Program,match\n")
         for i in match_num:
             file.write(f'{i[0]},{i[1]}\n')

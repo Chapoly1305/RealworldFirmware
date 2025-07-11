@@ -8,6 +8,7 @@ from utils.key import *
 from pathlib import Path
 from utils.ghidra_helper import *
 from utils.launcher import HeadlessLoggingPyhidraLauncher
+from utils.sample_folders import get_current_res_dir
 # Import validation functions
 try:
     from utils.arm_valid import create_handlers, firm_valid, base_address, lang_str
@@ -180,8 +181,16 @@ def main(args):
         # Write to temp directory for fragments
         os.makedirs('./temp_csv', exist_ok=True)
         csv_path = f'./temp_csv/func_num_{project_name}.csv'
+    elif project_name.startswith('target_'):
+        # Target analysis - use sample-specific res directory
+        try:
+            res_dir = get_current_res_dir()
+            csv_path = res_dir / f'func_num_{project_name}.csv'
+        except ValueError:
+            # Fallback if no current analysis context
+            csv_path = f'./res/func_num_{project_name}.csv'
     else:
-        # Write to res directory for main projects
+        # Match database building - use global res directory
         csv_path = f'./res/func_num_{project_name}.csv'
     
     with open(csv_path, "w") as file:

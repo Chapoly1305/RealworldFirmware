@@ -14,12 +14,23 @@ import multiprocessing as mp
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from utils.sample_folders import get_current_res_dir, get_current_logs_dir
 
 def setup_logging(project_name):
     """Setup logging configuration"""
     log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
-    log_dir = Path('./logs')
-    log_dir.mkdir(exist_ok=True)
+    
+    # Use sample-specific logs directory for target analysis
+    if project_name.startswith('target_'):
+        try:
+            log_dir = get_current_logs_dir()
+        except ValueError:
+            # Fallback if no current analysis context
+            log_dir = Path('./logs')
+    else:
+        log_dir = Path('./logs')
+    
+    log_dir.mkdir(exist_ok=True, parents=True)
     
     logging.basicConfig(
         level=logging.INFO,
@@ -68,9 +79,19 @@ def search_with_fid(project_path, project_name, fid_info):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
+            # Determine output directory based on project type
+            if project_name.startswith('target_'):
+                try:
+                    res_dir = get_current_res_dir()
+                except ValueError:
+                    # Fallback if no current analysis context
+                    res_dir = Path('./res')
+            else:
+                res_dir = Path('./res')
+            
             # Parse results from output or check result files
-            result_file = Path(f"./res/functionID_{project_name}_{fid_info['name']}_*.json")
-            matching_files = list(Path('./res').glob(f"functionID_{project_name}_{fid_info['name']}_*.json"))
+            result_file = res_dir / f"functionID_{project_name}_{fid_info['name']}_*.json"
+            matching_files = list(res_dir.glob(f"functionID_{project_name}_{fid_info['name']}_*.json"))
             
             if matching_files:
                 # Get the most recent result file
@@ -173,8 +194,18 @@ def main():
                     }
                 summary_by_version[parent]['fid_count'] += 1
     
+    # Determine output directory based on project type
+    if args.project_name.startswith('target_'):
+        try:
+            res_dir = get_current_res_dir()
+        except ValueError:
+            # Fallback if no current analysis context
+            res_dir = Path('./res')
+    else:
+        res_dir = Path('./res')
+    
     # Save comprehensive results
-    output_file = Path(f"./res/FidSearchAll_{args.project_name}_{log_time}.json")
+    output_file = res_dir / f"FidSearchAll_{args.project_name}_{log_time}.json"
     with open(output_file, 'w') as f:
         json.dump({
             'project': args.project_name,
@@ -184,7 +215,7 @@ def main():
         }, f, indent=2)
     
     # Save summary CSV
-    csv_file = Path(f"./res/FidSearchAll_{args.project_name}_{log_time}_summary.csv")
+    csv_file = res_dir / f"FidSearchAll_{args.project_name}_{log_time}_summary.csv"
     with open(csv_file, 'w') as f:
         f.write("Version,Total_Matches,FID_Files_Checked\n")
         for version, data in summary_by_version.items():

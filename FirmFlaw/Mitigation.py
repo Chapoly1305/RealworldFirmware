@@ -8,6 +8,7 @@ import argparse
 import logging 
 from pathlib import Path 
 from utils.launcher import HeadlessLoggingPyhidraLauncher
+from utils.sample_folders import get_current_res_dir
 log_time = time.strftime("%Y-%m-%d_%H:%M:%S")
    
 quick_mode = False
@@ -187,13 +188,24 @@ def mpu(progam, monitor):
 def write_result(name: str, match_num: list, match_addr: list): 
     if len(match_num) == 0 or len(match_num[0]) != 3:
         logging.error(f"Not match {name} result for write match num")
-    with open(f'./res/{name}.csv', 'w') as file:
+    
+    # Determine output directory based on name pattern (contains target_)
+    if 'target_' in name:
+        try:
+            res_dir = get_current_res_dir()
+        except ValueError:
+            # Fallback if no current analysis context
+            res_dir = Path('./res')
+    else:
+        res_dir = Path('./res')
+    
+    with open(res_dir / f'{name}.csv', 'w') as file:
         file.write("Program, trustzone, time\n")
         for i in match_num:
             file.write(f'{i[0]}, {i[1]}, {i[2]}\n')
     if len(match_addr) == 0 or len(match_addr[0]) != 3:
         logging.error(f"Not match result {name} for write match address")
-    with open(f'./res/{name}_addr.csv', 'w') as file:
+    with open(res_dir / f'{name}_addr.csv', 'w') as file:
         file.write("Program, addresses\n")
         for i in match_addr:
             file.write(f'{i[0]}, {i[1]}\n')
