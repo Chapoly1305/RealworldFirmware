@@ -184,7 +184,12 @@ def search(args):
         pmatches = search_fid(program_, monitor, nameAnalysis)
         if len(pmatches) != 0:
             match_num.append([name_,len(pmatches)])
-            all_matches[name_[:name_.find('noheader')]] = pmatches
+            noheader_pos = name_.find('noheader')
+            if noheader_pos != -1:
+                clean_name = name_[:noheader_pos]
+            else:
+                clean_name = name_
+            all_matches[clean_name] = pmatches
         monitor.setMessage(f"{name_} matches {len(pmatches)} functions")
         logging.info(f"{name_} matches {len(pmatches)} functions")
         project.close(program_)
