@@ -10,8 +10,10 @@ import time
 import logging
 import argparse
 import subprocess
+import multiprocessing as mp
 from pathlib import Path
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def setup_logging(project_name):
     """Setup logging configuration"""
@@ -110,31 +112,66 @@ def main():
     all_results = {}
     summary_by_version = {}
     
-    # Search with each FID file
-    for parent, fids in by_parent.items():
-        logging.info(f"\nSearching with FIDs from: {parent}")
-        version_matches = 0
-        version_details = {}
-        
-        for fid_info in fids:
-            logging.info(f"  Searching with: {fid_info['name']}")
-            match_count, matches = search_with_fid(args.project_path, args.project_name, fid_info)
-            
-            if match_count > 0:
-                version_matches += match_count
-                version_details[fid_info['name']] = {
-                    'count': match_count,
-                    'matches': matches
-                }
-                logging.info(f"    Found {match_count} matches")
-        
-        summary_by_version[parent] = {
-            'total_matches': version_matches,
-            'fid_count': len(fids),
-            'details': version_details
+    # Search with each FID file using parallel processing
+    num_workers = min(mp.cpu_count(), len(fidb_files))
+    logging.info(f"Using {num_workers} parallel workers for FID search")
+    
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        # Submit all FID search jobs
+        future_to_fid = {
+            executor.submit(search_with_fid, args.project_path, args.project_name, fid_info): fid_info
+            for fid_info in fidb_files
         }
         
-        all_results[parent] = version_details
+        # Process results as they complete
+        completed = 0
+        for future in as_completed(future_to_fid):
+            completed += 1
+            fid_info = future_to_fid[future]
+            parent = fid_info['parent']
+            
+            # Progress logging
+            if completed % 10 == 0 or completed == len(fidb_files):
+                logging.info(f"FID Search Progress: {completed}/{len(fidb_files)} searches completed")
+            
+            try:
+                match_count, matches = future.result()
+                
+                # Initialize parent tracking if needed
+                if parent not in summary_by_version:
+                    summary_by_version[parent] = {
+                        'total_matches': 0,
+                        'fid_count': 0,
+                        'details': {}
+                    }
+                    all_results[parent] = {}
+                
+                # Update counts
+                summary_by_version[parent]['fid_count'] += 1
+                
+                if match_count > 0:
+                    summary_by_version[parent]['total_matches'] += match_count
+                    summary_by_version[parent]['details'][fid_info['name']] = {
+                        'count': match_count,
+                        'matches': matches
+                    }
+                    all_results[parent][fid_info['name']] = {
+                        'count': match_count,
+                        'matches': matches
+                    }
+                    logging.info(f"  {fid_info['name']} ({parent}): {match_count} matches")
+                    
+            except Exception as e:
+                logging.error(f"Error processing FID {fid_info['name']}: {e}")
+                # Still count as processed for the parent
+                parent = fid_info['parent']
+                if parent not in summary_by_version:
+                    summary_by_version[parent] = {
+                        'total_matches': 0,
+                        'fid_count': 0,
+                        'details': {}
+                    }
+                summary_by_version[parent]['fid_count'] += 1
     
     # Save comprehensive results
     output_file = Path(f"./res/FidSearchAll_{args.project_name}_{log_time}.json")
