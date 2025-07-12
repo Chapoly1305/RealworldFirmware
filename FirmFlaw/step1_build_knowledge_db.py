@@ -194,89 +194,105 @@ def analyze_single_file(file_info, checkpoint):
         
         return None
 
-def create_fid_single(proj_info, base_project_name, index):
-    """Create FID for a single project"""
-    if not proj_info or not proj_info['success']:
+def create_fid_for_version(version_projects, version_name):
+    """Create a single FID file for all projects of a specific NRF version"""
+    if not version_projects:
         return None
-        
+    
+    # Ensure fidb directory exists
+    fidb_dir = Path('./fidb')
+    fidb_dir.mkdir(exist_ok=True)
+    
+    # FID name will be like nrf_2.3.0
+    fid_name = version_name
+    
+    logging.info(f"Creating FID {fid_name} from {len(version_projects)} projects")
+    
+    # Currently, Fid.py only supports creating FID with one project at a time
+    # We'll create separate FIDs for each project and potentially merge them later
+    # For now, we'll just create FID from the first valid project
+    
+    valid_project = None
+    for proj_info in version_projects:
+        if proj_info and proj_info['success']:
+            valid_project = proj_info
+            break
+    
+    if not valid_project:
+        logging.error(f"No valid projects found for version {version_name}")
+        return None
+    
     # Convert project_dir back to Path if it's a string
-    project_dir = Path(proj_info['project_dir']) if isinstance(proj_info['project_dir'], str) else proj_info['project_dir']
+    project_dir = Path(valid_project['project_dir']) if isinstance(valid_project['project_dir'], str) else valid_project['project_dir']
     
-    # Extract filename without extension for FID name
-    file_path = Path(proj_info['file_path'])
-    file_stem = file_path.stem  # Gets filename without extension
-    parent_folder = proj_info.get('parent_folder', '')
-    
-    # Create FID name and path
-    if parent_folder:
-        fid_dir = Path(f'./fidb/{parent_folder}')
-        fid_dir.mkdir(parents=True, exist_ok=True)
-        fid_name = f"{parent_folder}/{file_stem}"
-    else:
-        fid_name = file_stem
-    
+    # Create FID with the first valid project
     cmd = [
         sys.executable,
         "Fid.py",
         "-c",
         str(project_dir.parent),                # Project location (parent dir)
-        proj_info['project_name'],              # Project name
-        fid_name                                # FID name with path
+        valid_project['project_name'],          # Project name
+        fid_name                                # FID name
     ]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
-            logging.info(f"Created FID for project {proj_info['project_name']} as {fid_name}")
-            return {'fid_name': fid_name, 'parent_folder': parent_folder, 'file_stem': file_stem}
+            logging.info(f"Created FID {fid_name} from project {valid_project['project_name']}")
         else:
-            logging.error(f"Failed to create FID for {proj_info['project_name']}: {result.stderr}")
+            logging.error(f"Failed to create FID from {valid_project['project_name']}: {result.stderr}")
             return None
     except Exception as e:
-        logging.error(f"Error creating FID for {proj_info['project_name']}: {e}")
+        logging.error(f"Error creating FID from {valid_project['project_name']}: {e}")
+        return None
+    
+    fid_path = fidb_dir / f"{fid_name}.fidb"
+    if fid_path.exists():
+        logging.info(f"Successfully created FID: {fid_path}")
+        return {'fid_name': fid_name, 'fid_path': str(fid_path)}
+    else:
+        logging.error(f"FID file was not created: {fid_path}")
         return None
 
 def create_fid_from_projects(project_info_list, base_project_name, checkpoint):
-    """Create FID database from all individual projects in parallel"""
-    logging.info(f"Creating FID database from {len(project_info_list)} projects")
+    """Create FID databases grouped by NRF version"""
+    logging.info(f"Creating FID databases from {len(project_info_list)} projects")
     
     # Check if already completed
     if checkpoint.data['stages'].get('fid_complete'):
         logging.info("FID creation already completed, skipping")
         return []
     
-    # We'll create a master FID by running Fid.py on each project
-    # First, ensure fidb directory exists
-    fidb_dir = Path('./fidb')
-    fidb_dir.mkdir(exist_ok=True)
-    
-    # Use multiprocessing to create FIDs in parallel
-    fid_files = []
-    num_workers = mp.cpu_count()
-    
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        # Submit all jobs
-        future_to_info = {
-            executor.submit(create_fid_single, proj_info, base_project_name, i): i 
-            for i, proj_info in enumerate(project_info_list)
-        }
+    # Group projects by NRF version (parent folder)
+    version_groups = {}
+    for proj_info in project_info_list:
+        if not proj_info or not proj_info['success']:
+            continue
         
-        # Collect results
-        completed = 0
-        for future in as_completed(future_to_info):
-            completed += 1
-            if completed % 10 == 0:
-                logging.info(f"FID Progress: {completed}/{len(project_info_list)} projects processed")
-                
-            try:
-                result = future.result()
-                if result:
-                    fid_files.append(result)
-            except Exception as e:
-                index = future_to_info[future]
-                logging.error(f"Failed to process FID for index {index}: {e}")
+        # Extract NRF version from parent folder (e.g., 'nrf_2.3.0')
+        parent_folder = proj_info.get('parent_folder', '')
+        if parent_folder.startswith('nrf_'):
+            if parent_folder not in version_groups:
+                version_groups[parent_folder] = []
+            version_groups[parent_folder].append(proj_info)
+        else:
+            logging.warning(f"Project {proj_info['project_name']} has unexpected parent folder: {parent_folder}")
     
-    logging.info(f"Created {len(fid_files)} FID files")
+    logging.info(f"Found {len(version_groups)} NRF versions to process")
+    for version, projects in version_groups.items():
+        logging.info(f"  {version}: {len(projects)} projects")
+    
+    # Create FID for each version
+    fid_files = []
+    for version_name, version_projects in version_groups.items():
+        logging.info(f"\nProcessing FID for {version_name}...")
+        result = create_fid_for_version(version_projects, version_name)
+        if result:
+            fid_files.append(result)
+        else:
+            logging.error(f"Failed to create FID for {version_name}")
+    
+    logging.info(f"Created {len(fid_files)} FID files (one per NRF version)")
     checkpoint.update_stage('fid_complete', True)
     return fid_files
 
@@ -444,6 +460,9 @@ Examples:
   %(prog)s ./match_base -n my_firmware      # Build with custom project name
   %(prog)s ./match_base --fresh             # Ignore checkpoint and start fresh
   %(prog)s ./match_base -w 8                # Use 8 workers for parallel processing
+  %(prog)s ./match_base --skip-fid          # Skip FID creation, only create SQLite DB
+  %(prog)s ./match_base --skip-sim          # Skip SQLite DB, only create FID files
+  %(prog)s ./match_base --skip-sim --fresh  # Fresh run, FID only
         """
     )
     
@@ -454,6 +473,10 @@ Examples:
                         help=f'Number of parallel workers (default: {mp.cpu_count()})')
     parser.add_argument('--fresh', action='store_true', 
                         help='Ignore existing checkpoint and start over')
+    parser.add_argument('--skip-fid', action='store_true',
+                        help='Skip FID database creation')
+    parser.add_argument('--skip-sim', action='store_true',
+                        help='Skip similarity database (SQLite) creation')
     
     args = parser.parse_args()
     
@@ -486,23 +509,23 @@ Examples:
         logging.info(f"--fresh specified, removing existing checkpoint: {checkpoint_file}")
         os.remove(checkpoint_file)
         
-        # Clean up old FID files (now in subdirectories)
+        # Clean up old FID files
         fidb_dir = Path('./fidb')
         if fidb_dir.exists():
-            # Clean up old format FID files
-            for fid_file in fidb_dir.glob(f"{project_name}_fid_*.fidb"):
+            # Clean up NRF version FID files
+            for fid_file in fidb_dir.glob("nrf_*.fidb"):
                 try:
                     os.remove(fid_file)
-                    logging.info(f"Removed old FID file: {fid_file}")
+                    logging.info(f"Removed FID file: {fid_file}")
                 except Exception as e:
                     logging.warning(f"Could not remove FID file {fid_file}: {e}")
             
-            # Clean up new format FID directories
+            # Clean up any subdirectories (from old format)
             for subdir in fidb_dir.iterdir():
                 if subdir.is_dir():
                     try:
                         shutil.rmtree(subdir)
-                        logging.info(f"Removed FID directory: {subdir}")
+                        logging.info(f"Removed old FID directory: {subdir}")
                     except Exception as e:
                         logging.warning(f"Could not remove FID directory {subdir}: {e}")
         
@@ -613,16 +636,24 @@ Examples:
         logging.info("Analysis stage already complete, loading project info")
         project_info_list = checkpoint.get_completed_projects()
     
-    # Step 3: Create FID databases from all projects
-    logging.info("Creating FID databases...")
-    fid_files = create_fid_from_projects(project_info_list, project_name, checkpoint)
+    # Step 3: Create FID databases from all projects (unless skipped)
+    if args.skip_fid:
+        logging.info("Skipping FID database creation (--skip-fid specified)")
+        fid_files = []
+    else:
+        logging.info("Creating FID databases...")
+        fid_files = create_fid_from_projects(project_info_list, project_name, checkpoint)
     
-    # Step 4: Create SQLite databases from all projects
-    logging.info("Creating SQLite databases...")
-    db_files = run_matchdb_on_projects(project_info_list, project_name, checkpoint)
+    # Step 4: Create SQLite databases from all projects (unless skipped)
+    if args.skip_sim:
+        logging.info("Skipping similarity database creation (--skip-sim specified)")
+        db_files = []
+    else:
+        logging.info("Creating SQLite databases...")
+        db_files = run_matchdb_on_projects(project_info_list, project_name, checkpoint)
     
-    # Step 5: Merge all SQLite databases
-    if db_files and not checkpoint.data['stages'].get('merge_complete'):
+    # Step 5: Merge all SQLite databases (unless skipped)
+    if not args.skip_sim and db_files and not checkpoint.data['stages'].get('merge_complete'):
         output_db = Path(f"./db/binfunc_{project_name}.db")
         output_db.parent.mkdir(exist_ok=True)
         
@@ -637,10 +668,20 @@ Examples:
         
         logging.info(f"\nComplete! Final database: {output_db}")
         logging.info(f"Total functions: {total_functions}")
-        logging.info(f"Created {len(fid_files)} FID files")
+        if not args.skip_fid:
+            logging.info(f"Created {len(fid_files)} FID files")
         logging.info(f"Ghidra projects preserved in ./ghidra_projects/")
-    else:
+    elif not args.skip_sim:
         logging.error("No databases were created successfully")
+    else:
+        # SQLite was skipped, just report FID results
+        if not args.skip_fid and fid_files:
+            logging.info(f"\nComplete! Created {len(fid_files)} FID files")
+            logging.info(f"Ghidra projects preserved in ./ghidra_projects/")
+        elif args.skip_fid and args.skip_sim:
+            logging.info(f"\nComplete! Analyzed {len(project_info_list)} files")
+            logging.info(f"Ghidra projects preserved in ./ghidra_projects/")
+            logging.info("Both FID and SQLite database creation were skipped")
     
     elapsed = time.time() - start_time
     logging.info(f"Total processing time: {elapsed:.2f} seconds")
@@ -656,10 +697,21 @@ Examples:
             logging.warning(f"Could not remove temp directory {temp_analysis_dir}: {e}")
     
     logging.info("\nKnowledge database built successfully!")
-    logging.info(f"Database location: ./db/binfunc_{project_name}.db")
-    logging.info("FID files: ./fidb/")
-    logging.info("\nTo identify a firmware, run:")
-    logging.info(f"  python3 step2_firmware_identification.py -f <firmware_file>")
+    
+    # Report what was created based on skip flags
+    if not args.skip_sim:
+        logging.info(f"Database location: ./db/binfunc_{project_name}.db")
+    else:
+        logging.info("SQLite database creation was skipped")
+    
+    if not args.skip_fid:
+        logging.info("FID files: ./fidb/nrf_*.fidb (one per NRF version)")
+    else:
+        logging.info("FID database creation was skipped")
+    
+    if not args.skip_sim or not args.skip_fid:
+        logging.info("\nTo identify a firmware, run:")
+        logging.info(f"  python3 step2_firmware_identification.py -f <firmware_file>")
 
 if __name__ == "__main__":
     main()
