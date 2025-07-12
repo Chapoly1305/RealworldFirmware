@@ -6,7 +6,7 @@ import java.util.List;
 public class Constant {
 
     // config
-    public final static String DIRECTORY_NAME = "/tmp/firmxaytest";
+    public final static String DIRECTORY_NAME = "/tmp/firmxray_" + ProcessHandle.current().pid();
     public final static int MAX_CYCLE_DIVE = 20;
     public final static int MAX_ITERATION = 3;
     public final static int TIMEOUT = 50000;

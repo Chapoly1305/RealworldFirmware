@@ -11,6 +11,9 @@ from firmutil import folder_operation
 from collections import OrderedDict
 import argparse
 from elftools.elf.elffile import ELFFile
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import threading
 
 
 firmxray_path = "../FirmXRay/"
@@ -67,6 +70,10 @@ vendor_packer_counts = {vendor: 0 for vendor in vendors + packers}
 special_counts = {spec: 0 for spec in specials}
 other_counts = {other: 0 for other in others}
 
+# Thread-safe counters
+vendor_packer_lock = threading.Lock()
+special_lock = threading.Lock()
+other_lock = threading.Lock()
 
 enable_firmxray = False
 
@@ -85,6 +92,165 @@ def init_json(json_dat):
     json_dat['comment'] = ''
     json_dat['file size'] = '-1'
     json_dat['protection'] = ''
+
+def process_single_file(file_info):
+    """Process a single file and return counter updates"""
+    path, fn, subdirs = file_info
+    
+    json_dat = {}
+    init_json(json_dat)
+    store_size_in_json(fn, subdirs, json_dat)
+    
+    # Handle special file types
+    if ".ti-txt.bin" in fn:
+        return process_msp430_parallel(path, json_dat)
+    elif "pic18" in fn:
+        return process_pic_parallel(path, json_dat, "pic18")
+    elif "pic24" in fn:
+        return process_pic_parallel(path, json_dat, "pic24_33")
+    
+    try:
+        # Configure logging for this process
+        logging.basicConfig(stream=sys.stdout, level=logging.WARNING, 
+                          format=f'Worker-{os.getpid()} [%(levelname)s]: %(message)s')
+        
+        final_location = ""
+        entropy_result, signature_info = run_binwalk('--entropy', '--magic', './magic/vendors', 
+                                                   '--magic', './magic/fromproject', '--magic', './magic/rxcores', 
+                                                   '--nplot', '--quiet', path=path)
+        
+        # Handle entropy
+        if entropy_result == "encrypted":
+            final_location = folder_operation.copy_file_keep_structure(input_prefix, path, other_dirs["encrypted"])
+        json_dat['protection'] = entropy_result
+        
+        # Handle signatures
+        signature_folder = signatures(signature_info, json_dat)
+        counter_updates = {}
+        
+        if signature_folder != "":
+            if final_location == "":
+                final_location = folder_operation.copy_file_keep_structure(input_prefix, path, signature_folder)
+            
+            # Run firmxray only when architecture is arm
+            if json_dat["architecture"] == "arm" and "file offset" in json_dat:
+                abs_final_location = os.path.abspath(final_location)
+                
+                if json_dat["vendor"] == "ti":
+                    base_address = run_firmxray(abs_final_location, "TI")
+                else:
+                    file_for_firmxray = create_file_from_offset(abs_final_location, json_dat)
+                    base_address = run_firmxray(file_for_firmxray, "Nordic")
+                    
+                    if file_for_firmxray != abs_final_location:
+                        os.remove(file_for_firmxray)
+                
+                if base_address == "0x-1":
+                    json_dat["architecture"] = ""
+                json_dat["base address"] = base_address
+        
+        write_json(final_location, json_dat)
+        
+        # Return counter updates for thread-safe aggregation
+        return {
+            'vendor_packer': get_vendor_packer_update(json_dat),
+            'special': get_special_update(json_dat),
+            'other': get_other_update(entropy_result)
+        }
+        
+    except Exception as e:
+        logging.error(f"Error processing {path}: {e}")
+        return {'other': {'failed': 1}}
+
+def get_vendor_packer_update(json_dat):
+    """Extract vendor/packer updates from json data"""
+    updates = {}
+    if json_dat.get('vendor') and json_dat['vendor'] in vendors:
+        updates[json_dat['vendor']] = 1
+    if json_dat.get('packer') and json_dat['packer'] in packers:
+        updates[json_dat['packer']] = 1
+    return updates
+
+def get_special_update(json_dat):
+    """Extract special/architecture updates from json data"""
+    updates = {}
+    if json_dat.get('architecture') and json_dat['architecture'] in specials:
+        updates[json_dat['architecture']] = 1
+    return updates
+
+def get_other_update(entropy_result):
+    """Extract other updates"""
+    updates = {}
+    if entropy_result == "encrypted":
+        updates['encrypted'] = 1
+    return updates
+
+def update_counters_from_result(result):
+    """Thread-safely update global counters from worker result"""
+    global vendor_packer_counts, special_counts, other_counts
+    
+    # Update vendor/packer counts
+    if 'vendor_packer' in result:
+        with vendor_packer_lock:
+            for key, value in result['vendor_packer'].items():
+                vendor_packer_counts[key] += value
+    
+    # Update special counts
+    if 'special' in result:
+        with special_lock:
+            for key, value in result['special'].items():
+                special_counts[key] += value
+    
+    # Update other counts
+    if 'other' in result:
+        with other_lock:
+            for key, value in result['other'].items():
+                other_counts[key] += value
+
+def process_msp430_parallel(filename, json_dat):
+    """Parallel version of process_msp430"""
+    protection, _ = run_binwalk('--entropy', '--nplot', '--quiet', path=filename)
+    
+    if "encrypted" in protection:
+        final_path = folder_operation.copy_file_keep_structure(input_prefix, filename, other_dirs["encrypted"])
+    else:
+        final_path = folder_operation.copy_file_keep_structure(input_prefix, filename, vendor_dirs["ti"])
+    
+    json_dat["vendor"] = "ti"
+    json_dat["chip"] = "msp430"
+    json_dat["architecture"] = "msp430"
+    json_dat["protection"] = protection
+    write_json(final_path, json_dat)
+    
+    return {
+        'vendor_packer': {'ti': 1},
+        'special': {'msp430': 1},
+        'other': {'encrypted': 1} if "encrypted" in protection else {}
+    }
+
+def process_pic_parallel(filename, json_dat, c_type):
+    """Parallel version of process_pic"""
+    prot, sig = run_binwalk('--entropy', '--magic', './magic/vendors', '--magic', './magic/fromproject', '--nplot', '--quiet', path=filename)
+    
+    if "encrypted" in prot:
+        final_path = folder_operation.copy_file_keep_structure(input_prefix, filename, other_dirs["encrypted"])
+    else:
+        final_path = folder_operation.copy_file_keep_structure(input_prefix, filename, vendor_dirs["microchip"])
+    
+    json_dat["vendor"] = "microchip"
+    json_dat["chip"] = c_type
+    json_dat["architecture"] = c_type
+    json_dat["protection"] = prot
+    for result in sig:
+        json_dat["comment"] += result.description + ", "
+    
+    write_json(final_path, json_dat)
+    
+    return {
+        'vendor_packer': {'microchip': 1},
+        'special': {c_type: 1},
+        'other': {'encrypted': 1} if "encrypted" in prot else {}
+    }
 
 def main():
     global other_counts
@@ -119,98 +285,32 @@ def main():
     # TODO
     process_nordic()
 
+    # Collect all files to process
+    files_to_process = []
     for subdirs, dirs, fnames in os.walk(input_dir):
         for fn in fnames:
+            if not excluded_formats(fn):
+                path = os.path.join(subdirs, fn)
+                files_to_process.append((path, fn, subdirs))
 
-            # if we have similar cases we can make this a function to weed out useless files
-            if excluded_formats(fn):
-                logging.debug(f"Excluded format. No need to analyze: {fn}")
-                continue
-
-            json_dat = {}
-            init_json(json_dat)
-
-            store_size_in_json(fn, subdirs, json_dat)
-
-            signature_folder = ""
-            entropy_result = ""
-            path = os.path.join(subdirs, fn)
-            if ".ti-txt.bin" in fn:
-                process_msp430(path, json_dat)
-                continue
-            elif "pic18" in fn:
-                process_pic(path, json_dat, "pic18")
-                continue
-            elif "pic24" in fn:
-                process_pic(path, json_dat, "pic24_33")
-                continue
-
+    # Process files in parallel
+    max_workers = mp.cpu_count()//2
+    logging.info(f"Processing {len(files_to_process)} files using {max_workers} CPU cores")
+    
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_file = {executor.submit(process_single_file, file_info): file_info for file_info in files_to_process}
+        
+        # Process completed tasks
+        for future in as_completed(future_to_file):
+            file_info = future_to_file[future]
             try:
-                print()
-                logging.info("=================== PROCESSING FILE: ===================")
-                logging.info(f"Name: {path}")
-
-                # for module in binwalk.scan('--entropy', '--magic', './magic/vendors', '--magic', './magic/fromproject', '--nplot', '--quiet', path):
-                #     if module.name == "Signature":
-                #         signature_info = module.results
-                        
-                #     elif module.name == "Entropy":
-                #         encrypted_info = module.results
-
-                final_location = ""
-
-                entropy_result, signature_info = run_binwalk('--entropy', '--magic', './magic/vendors', '--magic', './magic/fromproject', '--magic', './magic/rxcores', '--nplot', '--quiet', path=path)
-
-                # Handle entropy first
-                #entropy_result = entropy(encrypted_info, path)
-                if entropy_result == "encrypted":
-                    #Move file to encrypted folder
-                    final_location = folder_operation.copy_file_keep_structure(input_prefix, path, other_dirs["encrypted"])
-                json_dat['protection'] = entropy_result
-
-                # Now handle signatures
-                signature_folder = signatures(signature_info, json_dat)
-                if signature_folder != "":
-                    logging.debug(f"Signature result: {signature_folder}")
-
-                    if final_location == "":
-                        final_location = folder_operation.copy_file_keep_structure(input_prefix, path, signature_folder)
-
-                    # Run firmxray only when architecture is arm
-                    if json_dat["architecture"] == "arm":
-
-                        #File offset will only be present when it matches with an arm signature location
-                        if "file offset" in json_dat:
-
-                            #Only run firmxray if we have identified a file offset, from the TI description that matches _Arm signature
-                            logging.info(f"Running FirmXRay on {final_location}...")
-                            abs_final_location = os.path.abspath(final_location)
-
-                            if json_dat["vendor"] == "ti":
-                                logging.info("TI used for firmxray")
-                                base_address = run_firmxray(abs_final_location, "TI")
-                            else:
-                                # Create a copy of the file without header or empty bytes (from the hex conversion)
-                                file_for_firmxray = create_file_from_offset(abs_final_location, json_dat)
-
-                                logging.info("Raw Arm (including Nordic) used for firmxray")
-                                base_address = run_firmxray(file_for_firmxray, "Nordic")
-
-                                # Only remove the file if it was a copy, and not the original file
-                                if(file_for_firmxray != abs_final_location):
-                                    os.remove(file_for_firmxray)
-
-                            if base_address == "0x-1":
-                                json_dat["architecture"] = ""
-
-                            logging.debug(f"Reported base address: {base_address}")
-                            json_dat["base address"] = base_address
-                else:
-                    logging.warning(f"empty signature_folder")
-                write_json(final_location, json_dat)
-
-            except binwalk.ModuleException as e:
-                logging.error(f"Fail: {e}")
+                result = future.result()
+                if result:
+                    # Update counters thread-safely
+                    update_counters_from_result(result)
+            except Exception as e:
+                logging.error(f"Error processing {file_info[0]}: {e}")
     
     print_stats()
     folder_operation.delete_folder(input_dir)
@@ -241,7 +341,8 @@ def process_folder_signature():
                         data["comment"] += item.description + ", "
 
                     write_json(bin_final_path, data)
-                    vendor_packer_counts["ti"] += 1
+                    with vendor_packer_lock:
+                        vendor_packer_counts["ti"] += 1
             
             # We can delete the remaining of the folder since we extracted the binary
             index = root.find(ti_msp_prefix)
@@ -298,7 +399,8 @@ def process_folder_signature():
 
                                     write_json(bin_final_path, data)
                                     folder_operation.delete_folder(root)
-                                    vendor_packer_counts["nordic"] += 1
+                                    with vendor_packer_lock:
+                                        vendor_packer_counts["nordic"] += 1
                                     break
                             print()
 
@@ -424,14 +526,13 @@ def process_pic(filename, json_dat, c_type):
 
     write_json(final_path, json_dat)
 
-    vendor_packer_counts["microchip"] += 1
-    special_counts[c_type] += 1
+    with vendor_packer_lock:
+        vendor_packer_counts["microchip"] += 1
+    with special_lock:
+        special_counts[c_type] += 1
 
 def process_msp430(filename, json_dat):
-    global vendor_packer_counts
-    global special_counts
-
-    protection, _ = run_binwalk('--entropy', '--nplot', '--quiet', path=final_path)
+    protection, _ = run_binwalk('--entropy', '--nplot', '--quiet', path=filename)
 
     if "encrypted" in protection:
         final_path = folder_operation.copy_file_keep_structure(input_prefix, filename, other_dirs["encrypted"])
@@ -444,8 +545,10 @@ def process_msp430(filename, json_dat):
     json_dat["protection"] = protection
     write_json(final_path, json_dat)
     
-    vendor_packer_counts["ti"] += 1
-    special_counts["msp430"] += 1
+    with vendor_packer_lock:
+        vendor_packer_counts["ti"] += 1
+    with special_lock:
+        special_counts["msp430"] += 1
 
 def create_file_from_offset(file_path, json_dat):
     offset = json_dat.get("file offset", 0)
@@ -463,8 +566,7 @@ def create_file_from_offset(file_path, json_dat):
 
 
 def parse_sig_popular_vendors_packers(filename, desc, json_dat, allresults):
-    global vendor_packer_counts
-
+    # Remove global counter updates - they will be handled by the parent process
     result_dir = ""
     chip = ""
 
@@ -508,7 +610,7 @@ def parse_sig_popular_vendors_packers(filename, desc, json_dat, allresults):
                 json_dat["file offset"] = header_length
 
             update_base_and_entry(desc.lower(), json_dat)
-            vendor_packer_counts[name] += 1
+            # Remove direct counter update - handled by parent
 
             result_dir = directory
 
@@ -523,21 +625,19 @@ def parse_sig_popular_vendors_packers(filename, desc, json_dat, allresults):
                 json_dat["architecture"] = bin_arch
                 json_dat["entry"] = bin_entry
                 json_dat["comment"] += f"ELF Flags: {bin_flags}, "
-                vendor_packer_counts["elf"] += 1
+                # Remove direct counter update - handled by parent
             
             elif description.startswith("_uf2"):
                 process_uf2(desc.lower(), json_dat)
 
             elif description.startswith("_linux"):
                 json_dat["comment"] += desc + ", "
-                vendor_packer_counts["linux"] +=1
+                # Remove direct counter update - handled by parent
 
     return result_dir
 
 def signatures(results, json_dat):
-
-    global special_counts, other_counts
-
+    # Remove global counter updates - they will be handled by the parent process
     failed_dir = other_dirs["failed"]
     arm_dir = special_dirs["arm"]
 
@@ -545,11 +645,8 @@ def signatures(results, json_dat):
 
     if len(results) == 0:
         logging.debug("No signatures found")
-        other_counts["failed"] += 1
+        # Remove direct counter update - handled by parent
         return failed_dir
-
-    for index, r in enumerate(results):
-        print(f">{index}. offset: {hex(r.offset)}: {r.description}\n")
 
     identify_protection(results, json_dat)
 
@@ -565,7 +662,7 @@ def signatures(results, json_dat):
             return ret_value
         # the only sig is Arm
         if desc.strip().lower().startswith("_arm"):
-            special_counts["arm"] += 1
+            # Remove direct counter update - handled by parent
             json_dat["architecture"] = "arm"
             # json_dat["vendor"] = "arm"
             json_dat["file offset"] = offset
@@ -574,7 +671,7 @@ def signatures(results, json_dat):
             logging.debug(f"Has other signature: {desc}")
             json_dat["packer"] = "basic"
             json_dat["comment"] = desc
-            vendor_packer_counts["basic"] += 1
+            # Remove direct counter update - handled by parent
             return packers_dirs["basic"]
         
     elif len(results) > 1:
@@ -589,7 +686,7 @@ def signatures(results, json_dat):
 
         if has_conflict(results):
             logging.warning("and they conflict with each other")
-            other_counts["failed"] += 1
+            # Remove direct counter update - handled by parent
             # this is the best we can do for now.
             return failed_dir
         # since they don't conflict, fill in as much info as we can
@@ -608,7 +705,7 @@ def signatures(results, json_dat):
 
                     json_dat["architecture"] = "arm"
                     #json_dat["comment"] += desc
-                    special_counts["arm"] += 1
+                    # Remove direct counter update - handled by parent
 
                     # If it's arm the file offset should be the location of the first arm signature (for Firmxray analysis)
                     if "file offset" not in json_dat:
@@ -621,25 +718,6 @@ def signatures(results, json_dat):
                     if ret_value == '':
                         ret_value = arm_dir
 
-                # elif desc.strip().lower().startswith("_elf"):
-                #     bin_arch, bin_entry, bin_flags = read_elf(entry.file.name)
-                #     json_dat["architecture"] = bin_arch
-                #     json_dat["entry"] = bin_entry
-                #     json_dat["comment"] += f", ELF Flags: {bin_flags}, "
-                #     special_counts["elf"] += 1
-                #     if not bool(json_dat["vendor"]):
-                #         json_dat["vendor"] = "elf"
-                #         ret = elf_dir
-
-                # elif desc.strip().lower().startswith("_uf2"):
-                #     process_uf2(desc.lower(), json_dat)
-                
-                # elif desc.strip().lower().startswith("_linux"):
-                #     json_dat["vendor"] = "linux"
-                #     json_dat["comment"] = desc
-                #     special_counts["linux"] +=1
-                #     ret = special_dirs["linux"]
-
             if bool(json_dat["vendor"]):
                 return ret_value
             elif bool(json_dat["packer"]):
@@ -649,12 +727,12 @@ def signatures(results, json_dat):
             # this should never happen
             else:
                 logging.warning("no valid signature found (Should never happen)")
-                other_counts["failed"] += 1
+                # Remove direct counter update - handled by parent
                 return failed_dir
         else:
             logging.warning("no valid signature found")
             json_dat["packer"] = "basic"
-            vendor_packer_counts["basic"] += 1
+            # Remove direct counter update - handled by parent
             return packers_dirs["basic"]
 
 
@@ -803,7 +881,7 @@ def store_size_in_json(filename, subdirs, json_dat):
     
 
 def entropy(results, filepath):
-    global other_counts
+    # Remove global counter updates - they will be handled by the parent process
     num = 0
     count = 0
     for r in results:
@@ -827,7 +905,7 @@ def entropy(results, filepath):
     #print(f"{filepath}'s average entropy is: {res}")
 
     if res > entr_threshold:
-        other_counts["encrypted"] += 1
+        # Remove direct counter update - handled by parent
         return "encrypted"
     
     return "plaintext"

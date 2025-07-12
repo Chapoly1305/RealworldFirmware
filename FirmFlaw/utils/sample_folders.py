@@ -5,6 +5,7 @@ Provides functions to create and manage organized output directories.
 
 import os
 import time
+import json
 from pathlib import Path
 from datetime import datetime
 
@@ -20,7 +21,7 @@ def create_sample_folder(sample_name, timestamp=None):
         Path: Path to the created sample folder
     """
     if timestamp is None:
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        timestamp = datetime.now().strftime('%m_%d_%H_%M')
     
     folder_name = f"{sample_name}_{timestamp}"
     sample_dir = Path(f"./results/{folder_name}")
@@ -122,7 +123,7 @@ def set_current_analysis(sample_name, timestamp=None):
     global _current_sample_name, _current_timestamp
     _current_sample_name = sample_name
     if timestamp is None:
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        timestamp = datetime.now().strftime('%m_%d_%H_%M')
     _current_timestamp = timestamp
 
 def get_current_sample_folder():
@@ -155,3 +156,53 @@ def get_current_temp_dir():
 def get_current_logs_dir():
     """Get current sample's logs directory"""
     return get_current_sample_folder() / "logs"
+
+def save_current_context(file_path=".analysis_context.json"):
+    """
+    Save the current analysis context to a file.
+    
+    Args:
+        file_path (str): Path to save the context file
+    """
+    context = {
+        "sample_name": _current_sample_name,
+        "timestamp": _current_timestamp
+    }
+    with open(file_path, 'w') as f:
+        json.dump(context, f)
+
+def load_current_context(file_path=".analysis_context.json"):
+    """
+    Load the analysis context from a file.
+    
+    Args:
+        file_path (str): Path to the context file
+        
+    Returns:
+        bool: True if context was loaded successfully, False otherwise
+    """
+    global _current_sample_name, _current_timestamp
+    
+    if not os.path.exists(file_path):
+        return False
+        
+    try:
+        with open(file_path, 'r') as f:
+            context = json.load(f)
+        
+        _current_sample_name = context.get("sample_name")
+        _current_timestamp = context.get("timestamp")
+        
+        return _current_sample_name is not None
+    except (json.JSONDecodeError, IOError):
+        return False
+
+def clear_context_file(file_path=".analysis_context.json"):
+    """
+    Remove the context file.
+    
+    Args:
+        file_path (str): Path to the context file
+    """
+    if os.path.exists(file_path):
+        os.remove(file_path)

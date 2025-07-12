@@ -114,7 +114,7 @@ public class ExecutionEngine {
         if (Constant.MCU.equals("Nordic")) {
             SymbolTable symbolTable = program.getSymbolTable();
             for (Symbol sym : symbolTable.getAllSymbols(true)) {
-                if (sym.getName().equals("MasterStackPointer")) {
+                if (sym != null && sym.getName().equals("MasterStackPointer")) {
                     try {
                         long d1 = program.getMemory().getInt(sym.getAddress());
                         registers.put("sp", d1);
