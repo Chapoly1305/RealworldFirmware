@@ -34,12 +34,17 @@ def setup_logging(project_name):
     
     log_dir.mkdir(exist_ok=True, parents=True)
     
+    # Get log level from environment variable, default to INFO
+    log_level_str = os.environ.get('LOGLEVEL', 'INFO').upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_dir / f'FidSearchAll_{project_name}_{log_time}.log'),
-            logging.StreamHandler(sys.stdout)
+            # Only add console handler if not suppressing output
+            logging.StreamHandler(sys.stdout) if log_level < logging.ERROR else logging.NullHandler()
         ]
     )
     return log_time

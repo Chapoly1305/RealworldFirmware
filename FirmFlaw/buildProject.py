@@ -104,7 +104,12 @@ def main(args):
     num = 0
     for file_ in project.getRootFolder().getFiles():
         noheader_ = file_.getName()
-        name_ = noheader_[: noheader_.find("noheader")]
+        # Extract the base name - if "noheader" is in the filename, use that as delimiter
+        # Otherwise, use the full filename
+        if "noheader" in noheader_:
+            name_ = noheader_[: noheader_.find("noheader")]
+        else:
+            name_ = noheader_
         program_ = project.openProgram("/", noheader_, True)
         funcs_ = program_.getFunctionManager().getFunctionCount()
         if funcs_ == 0:

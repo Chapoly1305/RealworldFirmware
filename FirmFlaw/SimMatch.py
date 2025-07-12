@@ -125,7 +125,11 @@ if __name__ == "__main__":
         os.makedirs('./logs', exist_ok=True)
         log_filename = f'./logs/SimMatch_{args.input_db.name}_{log_time}.log'
     
-    logging.basicConfig(filename=str(log_filename), level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT)
+    # Get log level from environment variable, default to DEBUG
+    log_level_str = os.environ.get('LOGLEVEL', 'DEBUG').upper()
+    log_level = getattr(logging, log_level_str, logging.DEBUG)
+    
+    logging.basicConfig(filename=str(log_filename), level=log_level, format=LOG_FORMAT, datefmt=DATE_FORMAT)
     try:
         main(args)
     except KeyboardInterrupt:
