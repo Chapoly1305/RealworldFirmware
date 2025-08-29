@@ -47,7 +47,7 @@ public class BaseAddressUtil {
             while (line != null) {
                 String name = line.split("\t")[0].strip();
                 if (name.equals(programName)) {
-                    long address = Integer.parseInt(line.split("\t")[1]);
+                    long address = Long.parseLong(line.split("\t")[1]);
                     return address;
                 }
                 line = reader.readLine();
