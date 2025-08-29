@@ -194,11 +194,19 @@ def main():
                                 file_for_firmxray = create_file_from_offset(abs_final_location, json_dat)
 
                                 logging.info("Raw Arm (including Nordic) used for firmxray")
-                                base_address = run_firmxray(file_for_firmxray, "Nordic")
-
-                                # Only remove the file if it was a copy, and not the original file
-                                if(file_for_firmxray != abs_final_location):
+                                # Use original file for base address detection if extracted portion is too small
+                                if file_for_firmxray != abs_final_location:
+                                    # Check if _fxr file is too small for meaningful analysis
+                                    original_size = os.path.getsize(abs_final_location)
+                                    extracted_size = os.path.getsize(file_for_firmxray)
+                                    if extracted_size < original_size * 0.1:  # Less than 10% of original
+                                        logging.warning(f"Extracted file ({extracted_size} bytes) too small compared to original ({original_size} bytes), using original for base address detection")
+                                        base_address = run_firmxray(abs_final_location, "Nordic")
+                                    else:
+                                        base_address = run_firmxray(file_for_firmxray, "Nordic")
                                     os.remove(file_for_firmxray)
+                                else:
+                                    base_address = run_firmxray(file_for_firmxray, "Nordic")
 
                             if base_address == "0x-1":
                                 json_dat["architecture"] = ""
